@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack, Checkbox, FormControlLabel, Select, MenuItem, FormControl } from '@mui/material';
+import { Box, Button, Container, TextField, Typography, Stack, Checkbox, FormControlLabel, Select, MenuItem, FormControl, CircularProgress } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -12,7 +12,7 @@ import { Team } from '@/types/database';
 export default function SignUpPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({
-    displayName: '',
+    displayName: '', 
     teamName: '',
     email: '',
     password: '',
@@ -127,13 +127,13 @@ export default function SignUpPage() {
       setErrors((prev) => ({
         ...prev,
         [name]: '',
-      }));
+    }));
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    
     if (!validateForm()) {
       return;
     }
@@ -155,23 +155,51 @@ export default function SignUpPage() {
       }
 
       if (authData.user) {
-        // Create profile in profiles table
-        // Display name is always "Player"
-        // Save team_id (the selected team's ID)
+        // Check if profile already exists
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (existingProfile) {
+          // Profile already exists, update it instead
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              display_name: formData.displayName,
+              team_id: formData.teamName,
+            })
+            .eq('id', authData.user.id);
+
+          if (profileError) {
+            console.error('Supabase Profile Update Error (signup):', profileError);
+            toast.error('Error updating profile: ' + profileError.message);
+            setIsLoading(false);
+            return;
+          }
+        } else {
+          // Create new profile in profiles table
         const { error: profileError } = await supabase
           .from('profiles')
           .insert({
             id: authData.user.id,
-            display_name: 'Player',
-            team_id: formData.teamName,
+            display_name: formData.displayName,
+              team_id: formData.teamName,
             subscription_status: 'inactive',
           });
 
         if (profileError) {
-          console.error('Supabase Profile Error (signup):', profileError);
-          toast.error('Error creating profile: ' + profileError.message);
+            // If it's a duplicate key error, profile was created in the meantime
+            if (profileError.code === '23505') {
+              console.log('Profile already exists, continuing...');
+            } else {
+              console.error('Supabase Profile Error (signup):', profileError);
+              toast.error('Error creating profile: ' + profileError.message);
           setIsLoading(false);
           return;
+            }
+          }
         }
 
         toast.success('Account created successfully! Redirecting to login...');
@@ -190,11 +218,11 @@ export default function SignUpPage() {
 
 
   return (
-    <Box
+    <Box 
       className="anim-fade-up"
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
+      sx={{ 
+        minHeight: '100vh', 
+        display: 'flex', 
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#0a0a0a',
@@ -553,7 +581,7 @@ export default function SignUpPage() {
               type="submit"
               variant="contained"
               size="large"
-              endIcon={<ArrowForwardIcon />}
+              endIcon={isLoading ? <CircularProgress size={20} sx={{ color: '#0f0505' }} /> : <ArrowForwardIcon />}
               disabled={isLoading}
               sx={{
                 backgroundColor: isLoading ? '#666' : '#16a34a',

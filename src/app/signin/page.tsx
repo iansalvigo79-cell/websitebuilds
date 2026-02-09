@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack } from '@mui/material';
+import { Box, Button, Container, TextField, Typography, Stack, CircularProgress } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -256,7 +256,7 @@ export default function SignInPage() {
               type="submit"
               variant="contained"
               size="large"
-              endIcon={<ArrowForwardIcon />}
+              endIcon={isLoading ? <CircularProgress size={20} sx={{ color: '#0f0505' }} /> : <ArrowForwardIcon />}
               disabled={isLoading}
               sx={{
                 backgroundColor: isLoading ? '#666' : '#16a34a',
@@ -289,6 +289,24 @@ export default function SignInPage() {
                   Join Now
                 </Link>
               </Typography>
+            </Box>
+
+            <Box sx={{ textAlign: 'center' }}>
+              <Button
+                variant="text"
+                onClick={() => router.push('/')}
+                sx={{
+                  color: '#999',
+                  textTransform: 'none',
+                  fontSize: '0.9rem',
+                  '&:hover': {
+                    color: '#fff',
+                    backgroundColor: 'transparent',
+                  },
+                }}
+              >
+                ← Back to Home
+              </Button>
             </Box>
           </Stack>
         </form>

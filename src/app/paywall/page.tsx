@@ -1,16 +1,19 @@
 "use client";
 
-import { Box, Container, Typography, Stack, Button, Card, CardContent } from '@mui/material';
+import { Box, Container, Typography, Stack, Button, Card, CardContent, CircularProgress } from '@mui/material';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { Profile } from '@/types/database';
 import CheckIcon from '@mui/icons-material/Check';
 import { toast } from 'react-toastify';
 
 export default function PaywallPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCheckingProfile, setIsCheckingProfile] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -20,18 +23,35 @@ export default function PaywallPage() {
         if (authError) {
           console.error('Supabase Auth Error (paywall):', authError);
         }
+      
+      if (!authUser) {
+        router.push('/signin');
+        return;
+      }
 
-        if (!authUser) {
-          router.push('/signin');
-          return;
+      setUser(authUser);
+
+        // Fetch user profile to check subscription status
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', authUser.id)
+          .single();
+
+        if (profileError) {
+          console.error('Supabase Profile Error (paywall):', profileError);
         }
 
-        setUser(authUser);
+        if (profileData) {
+          setProfile(profileData);
+        }
       } catch (err) {
         console.error('Unexpected Error (paywall checkAuth):', err);
+      } finally {
+        setIsCheckingProfile(false);
       }
     };
-
+    
     checkAuth();
   }, [router]);
 
@@ -39,45 +59,64 @@ export default function PaywallPage() {
     setIsLoading(true);
 
     try {
-      // Get session for authorization
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.error('Supabase Session Error (paywall):', sessionError);
-      }
-
-      // Call Edge Function to create Stripe Checkout session
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${sessionData.session?.access_token}`,
-        },
-        body: JSON.stringify({
-          userId: user?.id,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.error) {
-        toast.error(data.error);
+      if (!user) {
+        toast.error('User not found');
         setIsLoading(false);
         return;
       }
 
-      // Redirect to Stripe Checkout
-      if (data.url) {
-        window.location.href = data.url;
+      // For testing: Update profile with test Stripe IDs and set subscription to active
+      const testCustomerId = `cus_test_${Date.now()}`;
+      const testSubscriptionId = `sub_test_${Date.now()}`;
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          stripe_customer_id: testCustomerId,
+          stripe_subscription_id: testSubscriptionId,
+          subscription_status: 'active',
+        })
+        .eq('id', user.id);
+
+      if (profileError) {
+        console.error('Supabase Profile Update Error (paywall):', profileError);
+        toast.error('Error updating subscription: ' + profileError.message);
+        setIsLoading(false);
+        return;
       }
+
+      toast.success('Subscription activated successfully!');
+
+      // Navigate to dashboard
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 1000);
     } catch (err) {
-      console.error('Error creating checkout session (paywall):', err);
-      toast.error('Error creating checkout session');
+      console.error('Error processing subscription (paywall):', err);
+      toast.error('An unexpected error occurred');
       setIsLoading(false);
     }
   };
 
+  if (isCheckingProfile) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#0a0a0a',
+        }}
+      >
+        <CircularProgress sx={{ color: '#16a34a' }} />
+      </Box>
+    );
+  }
+
   return (
-    <Box className="anim-fade-up" sx={{ minHeight: '100vh', backgroundColor: '#0a0a0a', py: 6 }}>
+    <Box sx={{ backgroundColor: '#0a0a0a' }}>
+      <Box className="anim-fade-up" sx={{ py: 6 }}>
       <Container maxWidth="sm">
         <Box sx={{ textAlign: 'center', mb: 6 }}>
           <Typography variant="h3" sx={{ fontWeight: 900, color: '#fff', mb: 2 }}>
@@ -91,10 +130,9 @@ export default function PaywallPage() {
           </Typography>
         </Box>
 
-
         <Card
           sx={{
-            backgroundColor: 'rgba(30, 10, 10, 0.6)',
+              backgroundColor: '#0a0a0a',
             border: '2px solid #16a34a',
             mb: 4,
           }}
@@ -132,11 +170,12 @@ export default function PaywallPage() {
               variant="contained"
               size="large"
               fullWidth
-              disabled={isLoading}
+                disabled={isLoading || (profile?.stripe_subscription_id !== null)}
               onClick={handleCheckout}
+                startIcon={isLoading ? <CircularProgress size={20} sx={{ color: '#0f0505' }} /> : null}
               sx={{
-                backgroundColor: '#16a34a',
-                color: '#0f0505',
+                  backgroundColor: profile?.stripe_subscription_id !== null ? '#666' : '#16a34a',
+                  color: profile?.stripe_subscription_id !== null ? '#999' : '#0f0505',
                 fontWeight: 900,
                 fontSize: '1rem',
                 padding: '14px 24px',
@@ -144,16 +183,16 @@ export default function PaywallPage() {
                 letterSpacing: 1,
                 transition: 'background-color 0.3s ease',
                 '&:hover': {
-                  backgroundColor: '#137f2d',
+                    backgroundColor: profile?.stripe_subscription_id !== null ? '#666' : '#137f2d',
                   transform: 'none',
                 },
                 '&:disabled': {
                   backgroundColor: '#666',
-                  color: '#0a0a0a',
+                    color: profile?.stripe_subscription_id !== null ? '#999' : '#0a0a0a',
                 },
               }}
             >
-              {isLoading ? 'Processing...' : 'Subscribe Now'}
+                {isLoading ? 'Processing...' : profile?.stripe_subscription_id !== null ? 'Subscribed' : 'Subscribe Now'}
             </Button>
 
             <Typography sx={{ color: '#999', fontSize: '0.85rem', textAlign: 'center', mt: 3 }}>
@@ -167,7 +206,7 @@ export default function PaywallPage() {
             Not ready to subscribe?{' '}
             <Box
               component="button"
-              onClick={() => router.push('/')}
+                onClick={() => router.push('/dashboard')}
               sx={{
                 background: 'none',
                 border: 'none',
@@ -182,6 +221,7 @@ export default function PaywallPage() {
           </Typography>
         </Box>
       </Container>
+      </Box>
     </Box>
   );
 }

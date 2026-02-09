@@ -4,12 +4,22 @@ export interface Profile {
   team_id: string;
   team_name?: string;
   stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
   subscription_status: 'inactive' | 'active' | 'cancelled';
+  created_at: string;
+}
+
+export interface League {
+  id: string;
+  name: string;
+  country: string;
+  logo_url: string | null;
   created_at: string;
 }
 
 export interface Season {
   id: string;
+  league_id: string;
   name: string;
   start_date: string;
   end_date: string;

@@ -1,8 +1,20 @@
 'use client';
 
 import { Box, Container, Typography, Link, Grid, Divider } from '@mui/material';
+import { usePathname } from 'next/navigation';
+
+// Pages where the footer should be hidden
+const HIDDEN_ROUTES = ['/signin', '/signup'];
 
 export default function Footer() {
+  const pathname = usePathname();
+
+  const isHidden = HIDDEN_ROUTES.includes(pathname) || pathname.startsWith('/admin');
+
+  if (isHidden) {
+    return null;
+  }
+
   return (
     <Box sx={{ backgroundColor: '#050202', color: '#fff', mt: 0 }}>
       <Container maxWidth="lg">

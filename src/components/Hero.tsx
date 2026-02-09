@@ -8,10 +8,12 @@ import {
   Stack,
 } from '@mui/material';
 import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Image from 'next/image';
 
 export default function Hero() {
+  const router = useRouter();
   return (
     <Box
       className="anim-fade-up anim-stagger-parent hero-bg-pulse"
@@ -53,7 +55,7 @@ export default function Hero() {
       </Box>
 
       <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1, px: { xs: 2, md: 3 } }}>
-          <Stack spacing={{ xs: 3, md: 4 }} sx={{ maxWidth: 700 }}>
+        <Stack spacing={{ xs: 3, md: 4 }} sx={{ maxWidth: 700 }}>
           {/* Main Heading */}
           <Box>
             <Typography
@@ -118,6 +120,7 @@ export default function Hero() {
                 variant="contained"
                 size="large"
                 endIcon={<ArrowForwardIcon />}
+                onClick={() => router.push('/dashboard')}
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#0f0505',
@@ -158,26 +161,26 @@ export default function Hero() {
                   color: '#ffffff',
                   outline: '2px solid #ffffff',
                   fontWeight: 900,
-                fontSize: { xs: '0.9rem', md: '1.05rem' },
-                padding: { xs: '14px 24px', md: '16px 40px' },
-                borderRadius: '10px',
-                textTransform: 'uppercase',
-                letterSpacing: 1.2,
-                transition: 'background-color 0.3s ease',
-                width: { xs: '100%', sm: 'fit-content' },
-                '&:hover': {
-                  backgroundColor: 'transparent',
-                  transform: 'none',
-                },
-                '&:active': {
-                  transform: 'none',
-                },
-                '&:focus-visible': {
-                  transform: 'none',
-                },
-              }}
-            >
-              How it works
+                  fontSize: { xs: '0.9rem', md: '1.05rem' },
+                  padding: { xs: '14px 24px', md: '16px 40px' },
+                  borderRadius: '10px',
+                  textTransform: 'uppercase',
+                  letterSpacing: 1.2,
+                  transition: 'background-color 0.3s ease',
+                  width: { xs: '100%', sm: 'fit-content' },
+                  '&:hover': {
+                    backgroundColor: 'transparent',
+                    transform: 'none',
+                  },
+                  '&:active': {
+                    transform: 'none',
+                  },
+                  '&:focus-visible': {
+                    transform: 'none',
+                  },
+                }}
+              >
+                How it works
               </Button>
             </motion.div>
           </Stack>

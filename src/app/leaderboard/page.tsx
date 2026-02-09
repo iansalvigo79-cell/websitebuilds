@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Card } from '@mui/material';
+import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Card, CircularProgress } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { LeaderboardEntry } from '@/types/database';
@@ -103,7 +103,8 @@ export default function LeaderboardPage() {
   };
 
   return (
-    <Box className="anim-fade-up" sx={{ minHeight: '100vh', backgroundColor: '#0a0a0a', py: 4 }}>
+    <Box sx={{ backgroundColor: '#0a0a0a' }}>
+      <Box className="anim-fade-up" sx={{ py: 4 }}>
       <Container maxWidth="lg">
         <Box sx={{ mb: 4 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
@@ -120,11 +121,13 @@ export default function LeaderboardPage() {
         </Box>
 
         {isLoading ? (
-          <Typography sx={{ color: '#fff', textAlign: 'center', py: 4 }}>Loading leaderboard...</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 8 }}>
+              <CircularProgress sx={{ color: '#16a34a' }} />
+            </Box>
         ) : leaderboard.length === 0 ? (
-          <Typography sx={{ color: '#16a34a', textAlign: 'center', py: 4, fontSize: '1rem' }}>
+            <Typography sx={{ color: '#16a34a', textAlign: 'center', py: 4, fontSize: '1rem' }}>
             No predictions scored yet. Check back soon!
-          </Typography>
+            </Typography>
         ) : (
           <Card sx={{ backgroundColor: 'rgba(30, 10, 10, 0.6)', border: '2px solid #ffffff', overflow: 'hidden' }}>
             <TableContainer>
@@ -165,6 +168,7 @@ export default function LeaderboardPage() {
           </Card>
         )}
       </Container>
+      </Box>
     </Box>
   );
 }

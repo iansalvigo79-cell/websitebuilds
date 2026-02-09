@@ -1,0 +1,258 @@
+.prediction-outer-card {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.prediction-outer-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+      rgba(0, 0, 0, 0.3) 0%,
+      rgba(0, 0, 0, 0.5) 100%);
+  z-index: 1;
+}
+
+.prediction-inner-card {
+  position: relative;
+  z-index: 2;
+}
+
+.prediction-title-icon {
+  color: #fff;
+  font-size: 1.6rem;
+}
+
+.prediction-title-text {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.prediction-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.prediction-info-icon {
+  color: #16a34a;
+  font-size: 1rem;
+}
+
+.prediction-info-text {
+  color: #ccc;
+  font-size: 0.85rem;
+}
+
+.prediction-teams-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+}
+
+.prediction-team-block {
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.prediction-team-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.prediction-team-name {
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.3;
+}
+
+.prediction-vs-text {
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.prediction-label {
+  color: #999;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.prediction-value-box {
+  background-color: rgba(22, 163, 74, 0.15);
+  border: 1px solid rgba(22, 163, 74, 0.4);
+  border-radius: 8px;
+  padding: 10px 16px;
+  text-align: center;
+}
+
+.prediction-value-text {
+  color: #16a34a;
+  font-size: 1rem;
+  font-weight: 700;
+  font-style: italic;
+}
+
+.prediction-see-btn {
+  background-color: #1a1a1a;
+  color: #fff;
+  font-weight: 700;
+  text-transform: none;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 16px;
+  font-size: 0.95rem;
+}
+
+.prediction-see-btn:hover {
+  background-color: #2a2a2a;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.prediction-carousel-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 0 0;
+}
+
+.prediction-carousel-arrow {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.prediction-carousel-arrow:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.prediction-carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: background-color 0.3s ease;
+}
+
+.prediction-carousel-dot-active {
+  background-color: #fff;
+}
+
+.prediction-carousel-dot-inactive {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.prediction-carousel-count {
+  color: #16a34a;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+/* ========== Match Cards ========== */
+.match-card {
+  background-color: #1a1c24;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: border-color 0.2s ease;
+}
+
+.match-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.match-time-icon {
+  color: #ccc;
+  font-size: 1.1rem !important;
+}
+
+.match-time-text {
+  color: #ccc;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.match-team-text {
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.match-team-logo-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.match-vs-text {
+  color: #999;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.match-chart-btn {
+  color: #999 !important;
+}
+
+.match-chart-btn:hover {
+  color: #fff !important;
+}
+
+.match-prediction-chip {
+  color: #fff !important;
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  font-style: italic !important;
+  text-transform: none !important;
+  border-radius: 6px !important;
+  padding: 4px 16px !important;
+  min-height: 32px !important;
+}
+
+.match-view-btn {
+  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  border-radius: 6px !important;
+  padding: 4px 16px !important;
+  min-height: 32px !important;
+}
+
+.match-view-btn:hover {
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}

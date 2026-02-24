@@ -9,6 +9,17 @@ export interface Profile {
   created_at: string;
 }
 
+/** Badge types for streaks, exact predictions, leaderboard milestones */
+export type BadgeType =
+  | 'exact_prediction'
+  | 'streak_3'
+  | 'streak_5'
+  | 'streak_10'
+  | 'top_weekly'
+  | 'top_monthly'
+  | 'top_season'
+  | 'first_prediction';
+
 export interface League {
   id: string;
   name: string;
@@ -69,4 +80,13 @@ export interface LeaderboardEntry {
 export interface Team {
   id: string;
   name: string;
+}
+
+/** Prize winner record for weekly/monthly/seasonal. */
+export interface PrizeWinner {
+  id: string;
+  user_id: string;
+  period_type: 'weekly' | 'monthly' | 'seasonal';
+  period_key: string;
+  created_at: string;
 }

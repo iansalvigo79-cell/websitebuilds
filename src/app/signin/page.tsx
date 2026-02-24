@@ -247,7 +247,7 @@ export default function SignInPage() {
             </Box>
 
             <Box sx={{ textAlign: 'right' }}>
-              <Link href="#" style={{ color: '#16a34a', textDecoration: 'none', fontSize: '0.85rem' }}>
+              <Link href="/forgot-password" style={{ color: '#16a34a', textDecoration: 'none', fontSize: '0.85rem' }}>
                 Forgot password?
               </Link>
             </Box>

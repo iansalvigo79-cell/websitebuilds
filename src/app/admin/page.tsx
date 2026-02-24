@@ -1,11 +1,14 @@
 "use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress } from '@mui/material';
-import { useState, useEffect } from 'react';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import AddIcon from '@mui/icons-material/Add';
+import CalculateIcon from '@mui/icons-material/Calculate';
+import SportsScoreIcon from '@mui/icons-material/SportsScore';
 import { toast } from 'react-toastify';
+import { markPrizeWinner } from './actions';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -29,6 +32,22 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
   const [seasonForm, setSeasonForm] = useState({ name: '', startDate: '', endDate: '' });
+  const [isCalculatingPoints, setIsCalculatingPoints] = useState(false);
+  const [matchDaysForScores, setMatchDaysForScores] = useState<{ id: string; match_date: string; actual_total_goals: number | null; season_name?: string }[]>([]);
+  const [scoresLoading, setScoresLoading] = useState(false);
+  const [actualGoalsInputs, setActualGoalsInputs] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [computingId, setComputingId] = useState<string | null>(null);
+  const [winnerForm, setWinnerForm] = useState({ userId: '', periodType: 'weekly' as 'weekly' | 'monthly' | 'seasonal', periodKey: '' });
+  const [markingWinner, setMarkingWinner] = useState(false);
+  const [seasons, setSeasons] = useState<{ id: string; name: string; start_date: string; end_date: string; is_active: boolean }[]>([]);
+  const [seasonsLoading, setSeasonsLoading] = useState(false);
+  const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_name?: string }[]>([]);
+  const [matchDaysLoading, setMatchDaysLoading] = useState(false);
+  const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; home_team_name: string; away_team_name: string; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const [winnersList, setWinnersList] = useState<{ id: string; user_id: string; period_type: string; period_key: string }[]>([]);
+  const [winnersLoading, setWinnersLoading] = useState(false);
 
   useEffect(() => {
     const checkAdminAuth = async () => {
@@ -53,6 +72,230 @@ export default function AdminPage() {
     checkAdminAuth();
   }, [router]);
 
+  const fetchMatchDaysForScores = useCallback(async () => {
+    setScoresLoading(true);
+    try {
+      const { data: mdList, error: mdErr } = await supabase
+        .from('match_days')
+        .select('id, match_date, actual_total_goals, season_id, seasons(name)')
+        .order('match_date', { ascending: false })
+        .limit(60);
+      if (mdErr) {
+        toast.error(mdErr.message);
+        setMatchDaysForScores([]);
+        return;
+      }
+      const rows = (mdList || []).map((md: any) => ({
+        id: md.id,
+        match_date: md.match_date,
+        actual_total_goals: md.actual_total_goals,
+        season_name: md.seasons?.name ?? '—',
+      }));
+      setMatchDaysForScores(rows);
+      setActualGoalsInputs((prev) => {
+        const next = { ...prev };
+        rows.forEach((r: { id: string; actual_total_goals: number | null }) => {
+          if (r.actual_total_goals != null && next[r.id] === undefined) next[r.id] = String(r.actual_total_goals);
+        });
+        return next;
+      });
+    } finally {
+      setScoresLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tabValue === 3) fetchMatchDaysForScores();
+  }, [tabValue, fetchMatchDaysForScores]);
+
+  const fetchSeasons = useCallback(async () => {
+    setSeasonsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('seasons')
+        .select('id, name, start_date, end_date, is_active')
+        .order('start_date', { ascending: false });
+      if (error) {
+        toast.error(error.message);
+        setSeasons([]);
+      } else {
+        setSeasons((data as { id: string; name: string; start_date: string; end_date: string; is_active: boolean }[]) || []);
+      }
+    } finally {
+      setSeasonsLoading(false);
+    }
+  }, []);
+
+  const fetchMatchDaysList = useCallback(async () => {
+    setMatchDaysLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('match_days')
+        .select('id, match_date, cutoff_at, season_id, seasons(name)')
+        .order('match_date', { ascending: false })
+        .limit(100);
+      if (error) {
+        toast.error(error.message);
+        setMatchDaysList([]);
+      } else {
+        setMatchDaysList((data || []).map((md: any) => ({
+          id: md.id,
+          match_date: md.match_date,
+          cutoff_at: md.cutoff_at,
+          season_name: md.seasons?.name ?? '—',
+        })));
+      }
+    } finally {
+      setMatchDaysLoading(false);
+    }
+  }, []);
+
+  const fetchGamesList = useCallback(async () => {
+    setGamesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('games')
+        .select(`
+          id,
+          match_day_id,
+          kickoff_at,
+          home_goals,
+          away_goals,
+          home_team_rel:teams!games_home_team_fkey(name),
+          away_team_rel:teams!games_away_team_fkey(name)
+        `)
+        .order('kickoff_at', { ascending: false })
+        .limit(200);
+      if (error) {
+        const fallback = await supabase
+          .from('games')
+          .select('id, match_day_id, kickoff_at, home_goals, away_goals, home_team, away_team')
+          .order('kickoff_at', { ascending: false })
+          .limit(200);
+        if (fallback.error) {
+          toast.error(fallback.error.message);
+          setGamesList([]);
+        } else {
+          setGamesList((fallback.data || []).map((g: any) => ({
+            id: g.id,
+            match_day_id: g.match_day_id,
+            home_team_name: g.home_team || 'TBD',
+            away_team_name: g.away_team || 'TBD',
+            kickoff_at: g.kickoff_at || '',
+            home_goals: g.home_goals,
+            away_goals: g.away_goals,
+          })));
+        }
+      } else {
+        setGamesList((data || []).map((g: any) => ({
+          id: g.id,
+          match_day_id: g.match_day_id,
+          home_team_name: g.home_team_rel?.name ?? g.home_team ?? 'TBD',
+          away_team_name: g.away_team_rel?.name ?? g.away_team ?? 'TBD',
+          kickoff_at: g.kickoff_at || '',
+          home_goals: g.home_goals,
+          away_goals: g.away_goals,
+        })));
+      }
+    } finally {
+      setGamesLoading(false);
+    }
+  }, []);
+
+  const fetchWinnersList = useCallback(async () => {
+    setWinnersLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('prize_winners')
+        .select('id, user_id, period_type, period_key')
+        .order('period_key', { ascending: false })
+        .limit(50);
+      if (error) {
+        setWinnersList([]);
+      } else {
+        setWinnersList((data as { id: string; user_id: string; period_type: string; period_key: string }[]) || []);
+      }
+    } finally {
+      setWinnersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tabValue === 0) fetchSeasons();
+  }, [tabValue, fetchSeasons]);
+  useEffect(() => {
+    if (tabValue === 1) fetchMatchDaysList();
+  }, [tabValue, fetchMatchDaysList]);
+  useEffect(() => {
+    if (tabValue === 2) fetchGamesList();
+  }, [tabValue, fetchGamesList]);
+  useEffect(() => {
+    if (tabValue === 4) fetchWinnersList();
+  }, [tabValue, fetchWinnersList]);
+
+  const getSession = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token;
+  }, []);
+
+  const handleSaveActualGoals = async (matchDayId: string) => {
+    const raw = actualGoalsInputs[matchDayId];
+    const val = raw === '' ? null : parseInt(raw, 10);
+    if (val === null || Number.isNaN(val) || val < 0) {
+      toast.error('Enter a valid non-negative number');
+      return;
+    }
+    setSavingId(matchDayId);
+    try {
+      const token = await getSession();
+      if (!token) {
+        toast.error('Please sign in again');
+        return;
+      }
+      const res = await fetch('/api/admin/set-actual-goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ matchDayId, actualTotalGoals: val }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success('Actual goals saved');
+        fetchMatchDaysForScores();
+      } else {
+        toast.error(data.error || 'Failed to save');
+      }
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleComputeFromGames = async (matchDayId: string) => {
+    setComputingId(matchDayId);
+    try {
+      const token = await getSession();
+      if (!token) {
+        toast.error('Please sign in again');
+        return;
+      }
+      const res = await fetch('/api/admin/compute-from-games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ matchDayId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const total = data.total != null ? data.total : 0;
+        toast.success(`Computed total: ${total}`);
+        setActualGoalsInputs((prev) => ({ ...prev, [matchDayId]: String(total) }));
+        fetchMatchDaysForScores();
+      } else {
+        toast.error(data.error || 'Failed to compute');
+      }
+    } finally {
+      setComputingId(null);
+    }
+  };
+
   const handleCreateSeason = async () => {
     if (!seasonForm.name || !seasonForm.startDate || !seasonForm.endDate) {
       toast.error('Please fill in all fields');
@@ -76,6 +319,7 @@ export default function AdminPage() {
       toast.success('Season created successfully!');
       setSeasonForm({ name: '', startDate: '', endDate: '' });
       setOpenDialog(false);
+      fetchSeasons();
     } catch (err) {
       console.error('Unexpected Error (admin createSeason):', err);
       toast.error('An error occurred');
@@ -122,6 +366,7 @@ export default function AdminPage() {
             <Tab label="Match Days" />
             <Tab label="Games" />
             <Tab label="Scores" />
+            <Tab label="Winners" />
           </Tabs>
         </Box>
 
@@ -145,7 +390,36 @@ export default function AdminPage() {
                 New Season
               </Button>
             </Box>
-            <Typography sx={{ color: '#999' }}>Create and manage football seasons.</Typography>
+            <Typography sx={{ color: '#999', mb: 2 }}>Create and manage football seasons.</Typography>
+            {seasonsLoading ? (
+              <CircularProgress sx={{ color: '#16a34a' }} />
+            ) : (
+              <TableContainer component={Box} sx={{ mb: 2 }}>
+                <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Start date</TableCell>
+                      <TableCell>End date</TableCell>
+                      <TableCell>Active</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {seasons.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell>{s.name}</TableCell>
+                        <TableCell>{s.start_date}</TableCell>
+                        <TableCell>{s.end_date}</TableCell>
+                        <TableCell>{s.is_active ? 'Yes' : 'No'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+            {!seasonsLoading && seasons.length === 0 && (
+              <Typography sx={{ color: '#999' }}>No seasons yet. Create one above.</Typography>
+            )}
           </Box>
         </TabPanel>
 
@@ -154,7 +428,34 @@ export default function AdminPage() {
             <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
               Match Days
             </Typography>
-            <Typography sx={{ color: '#999' }}>Create match days and set cutoff times for predictions.</Typography>
+            <Typography sx={{ color: '#999', mb: 2 }}>Match days and cutoff times for predictions.</Typography>
+            {matchDaysLoading ? (
+              <CircularProgress sx={{ color: '#16a34a' }} />
+            ) : (
+              <TableContainer component={Box} sx={{ mb: 2 }}>
+                <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Match date</TableCell>
+                      <TableCell>Season</TableCell>
+                      <TableCell>Cutoff</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {matchDaysList.map((md) => (
+                      <TableRow key={md.id}>
+                        <TableCell>{md.match_date}</TableCell>
+                        <TableCell>{md.season_name}</TableCell>
+                        <TableCell>{md.cutoff_at ? new Date(md.cutoff_at).toLocaleString() : '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+            {!matchDaysLoading && matchDaysList.length === 0 && (
+              <Typography sx={{ color: '#999' }}>No match days in the database.</Typography>
+            )}
           </Box>
         </TabPanel>
 
@@ -163,7 +464,38 @@ export default function AdminPage() {
             <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
               Games
             </Typography>
-            <Typography sx={{ color: '#999' }}>Add games to match days and specify teams.</Typography>
+            <Typography sx={{ color: '#999', mb: 2 }}>Games per match day.</Typography>
+            {gamesLoading ? (
+              <CircularProgress sx={{ color: '#16a34a' }} />
+            ) : (
+              <TableContainer component={Box} sx={{ mb: 2, maxHeight: 440, overflow: 'auto' }}>
+                <Table size="small" stickyHeader sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Home</TableCell>
+                      <TableCell>Away</TableCell>
+                      <TableCell>Kickoff</TableCell>
+                      <TableCell align="right">Score</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {gamesList.map((g) => (
+                      <TableRow key={g.id}>
+                        <TableCell>{g.home_team_name}</TableCell>
+                        <TableCell>{g.away_team_name}</TableCell>
+                        <TableCell>{g.kickoff_at ? new Date(g.kickoff_at).toLocaleString() : '—'}</TableCell>
+                        <TableCell align="right">
+                          {g.home_goals != null && g.away_goals != null ? `${g.home_goals} – ${g.away_goals}` : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+            {!gamesLoading && gamesList.length === 0 && (
+              <Typography sx={{ color: '#999' }}>No games in the database.</Typography>
+            )}
           </Box>
         </TabPanel>
 
@@ -172,9 +504,187 @@ export default function AdminPage() {
             <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
               Enter Final Scores
             </Typography>
-            <Typography sx={{ color: '#999' }}>
-              Enter final match scores. This will trigger automatic scoring and leaderboard updates.
+            <Typography sx={{ color: '#999', mb: 2 }}>
+              Set actual total goals per match day (manually or compute from game scores), then run the points calculation.
             </Typography>
+            {scoresLoading ? (
+              <CircularProgress sx={{ color: '#16a34a' }} />
+            ) : matchDaysForScores.length === 0 ? (
+              <Typography sx={{ color: '#999', mb: 2 }}>No match days found. Add match days in the Match Days tab (or ensure seasons exist).</Typography>
+            ) : (
+              <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' }, mb: 2 }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Match date</TableCell>
+                    <TableCell>Season</TableCell>
+                    <TableCell>Actual total goals</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {matchDaysForScores.map((md) => (
+                    <TableRow key={md.id}>
+                      <TableCell>{md.match_date}</TableCell>
+                      <TableCell>{md.season_name}</TableCell>
+                      <TableCell>
+                        <TextField
+                          type="number"
+                          size="small"
+                          value={actualGoalsInputs[md.id] ?? (md.actual_total_goals != null ? String(md.actual_total_goals) : '')}
+                          onChange={(e) => setActualGoalsInputs((prev) => ({ ...prev, [md.id]: e.target.value }))}
+                          inputProps={{ min: 0 }}
+                          sx={{ width: 80, input: { color: '#fff' } }}
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          onClick={() => handleSaveActualGoals(md.id)}
+                          disabled={savingId === md.id}
+                          sx={{ mr: 1, color: '#16a34a' }}
+                        >
+                          {savingId === md.id ? 'Saving…' : 'Save'}
+                        </Button>
+                        <Button
+                          size="small"
+                          startIcon={computingId === md.id ? <CircularProgress size={14} sx={{ color: '#16a34a' }} /> : <SportsScoreIcon />}
+                          onClick={() => handleComputeFromGames(md.id)}
+                          disabled={computingId === md.id}
+                          sx={{ color: '#f59e0b' }}
+                        >
+                          From games
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            <Typography sx={{ color: '#999', fontSize: '0.8rem', mb: 1 }}>
+              Requires SUPABASE_SERVICE_ROLE_KEY in .env.local (Supabase → Project Settings → API → service_role).
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={isCalculatingPoints ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : <CalculateIcon />}
+              disabled={isCalculatingPoints}
+              onClick={async () => {
+                setIsCalculatingPoints(true);
+                try {
+                  const token = await getSession();
+                  if (!token) {
+                    toast.error('Please sign in again');
+                    return;
+                  }
+                  const res = await fetch('/api/admin/calculate-points', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({}),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (res.ok) {
+                    toast.success(`Points calculated: ${data.predictionsUpdated} predictions updated across ${data.matchDaysProcessed} match day(s).`);
+                  } else {
+                    toast.error(data.error || 'Failed to calculate points');
+                  }
+                } catch (e) {
+                  toast.error('Failed to calculate points');
+                } finally {
+                  setIsCalculatingPoints(false);
+                }
+              }}
+              sx={{
+                backgroundColor: '#16a34a',
+                color: '#fff',
+                fontWeight: 700,
+                '&:hover': { backgroundColor: '#137f2d' },
+              }}
+            >
+              {isCalculatingPoints ? 'Calculating…' : 'Calculate points for all match days'}
+            </Button>
+          </Box>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={4}>
+          <Box>
+            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
+              Prize Winners
+            </Typography>
+            <Typography sx={{ color: '#999', mb: 2 }}>
+              Mark weekly, monthly or seasonal top performers as winners. Requires <code style={{ color: '#16a34a' }}>prize_winners</code> table (user_id, period_type, period_key).
+            </Typography>
+            {winnersLoading ? (
+              <CircularProgress sx={{ color: '#16a34a', mb: 2 }} />
+            ) : winnersList.length > 0 ? (
+              <TableContainer component={Box} sx={{ mb: 2 }}>
+                <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>User ID</TableCell>
+                      <TableCell>Period</TableCell>
+                      <TableCell>Period key</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {winnersList.map((w) => (
+                      <TableRow key={w.id}>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{w.user_id}</TableCell>
+                        <TableCell>{w.period_type}</TableCell>
+                        <TableCell>{w.period_key}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : null}
+            <Stack direction="row" flexWrap="wrap" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+              <TextField
+                size="small"
+                label="User ID"
+                value={winnerForm.userId}
+                onChange={(e) => setWinnerForm((p) => ({ ...p, userId: e.target.value }))}
+                sx={{ minWidth: 280, input: { color: '#fff' }, label: { color: '#999' } }}
+              />
+              <TextField
+                size="small"
+                select
+                label="Period"
+                value={winnerForm.periodType}
+                onChange={(e) => setWinnerForm((p) => ({ ...p, periodType: e.target.value as 'weekly' | 'monthly' | 'seasonal' }))}
+                SelectProps={{ native: true }}
+                sx={{ minWidth: 120, input: { color: '#fff' }, label: { color: '#999' } }}
+              >
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="seasonal">Seasonal</option>
+              </TextField>
+              <TextField
+                size="small"
+                label="Period key (e.g. 2026-W08, 2026-02, season-1)"
+                value={winnerForm.periodKey}
+                onChange={(e) => setWinnerForm((p) => ({ ...p, periodKey: e.target.value }))}
+                sx={{ minWidth: 220, input: { color: '#fff' }, label: { color: '#999' } }}
+              />
+              <Button
+                variant="contained"
+                disabled={!winnerForm.userId || !winnerForm.periodKey || markingWinner}
+                onClick={async () => {
+                  setMarkingWinner(true);
+                  try {
+                    const result = await markPrizeWinner(winnerForm.userId, winnerForm.periodType, winnerForm.periodKey);
+                    if (result.ok) {
+                      toast.success('Winner marked');
+                      setWinnerForm((p) => ({ ...p, userId: '', periodKey: '' }));
+                      fetchWinnersList();
+                    } else toast.error(result.error);
+                  } finally {
+                    setMarkingWinner(false);
+                  }
+                }}
+                sx={{ backgroundColor: '#16a34a', color: '#fff' }}
+              >
+                {markingWinner ? 'Saving…' : 'Mark winner'}
+              </Button>
+            </Stack>
           </Box>
         </TabPanel>
 

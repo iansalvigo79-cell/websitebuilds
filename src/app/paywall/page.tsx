@@ -57,42 +57,54 @@ export default function PaywallPage() {
 
   const handleCheckout = async () => {
     setIsLoading(true);
-
     try {
       if (!user) {
         toast.error('User not found');
         setIsLoading(false);
         return;
       }
-
-      // For testing: Update profile with test Stripe IDs and set subscription to active
-      const testCustomerId = `cus_test_${Date.now()}`;
-      const testSubscriptionId = `sub_test_${Date.now()}`;
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          stripe_customer_id: testCustomerId,
-          stripe_subscription_id: testSubscriptionId,
-          subscription_status: 'active',
-        })
-        .eq('id', user.id);
-
-      if (profileError) {
-        console.error('Supabase Profile Update Error (paywall):', profileError);
-        toast.error('Error updating subscription: ' + profileError.message);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('Please sign in again');
         setIsLoading(false);
         return;
       }
-
-      toast.success('Subscription activated successfully!');
-
-      // Navigate to dashboard
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1000);
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.error?.includes('not configured') && typeof window !== 'undefined') {
+          const useTest = window.confirm('Stripe is not configured. Activate test subscription for this user?');
+          if (useTest) {
+            const { error: profileError } = await supabase
+              .from('profiles')
+              .update({
+                stripe_customer_id: `cus_test_${Date.now()}`,
+                stripe_subscription_id: `sub_test_${Date.now()}`,
+                subscription_status: 'active',
+              })
+              .eq('id', user.id);
+            if (!profileError) {
+              toast.success('Test subscription activated');
+              router.push('/dashboard');
+            } else toast.error(profileError.message);
+          }
+        } else {
+          toast.error(data.error || 'Checkout failed');
+        }
+        setIsLoading(false);
+        return;
+      }
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error('Checkout URL not returned');
+        setIsLoading(false);
+      }
     } catch (err) {
-      console.error('Error processing subscription (paywall):', err);
+      console.error('Checkout error:', err);
       toast.error('An unexpected error occurred');
       setIsLoading(false);
     }

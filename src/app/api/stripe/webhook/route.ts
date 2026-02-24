@@ -1,0 +1,86 @@
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
+
+/**
+ * POST /api/stripe/webhook
+ * Stripe webhook: subscription created/updated/deleted.
+ * Configure in Stripe Dashboard: https://dashboard.stripe.com/webhooks
+ * Use STRIPE_WEBHOOK_SECRET (signing secret for this endpoint).
+ */
+export async function POST(request: NextRequest) {
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!stripeSecretKey || !webhookSecret || !supabaseUrl || !serviceKey) {
+    console.error('Stripe webhook: missing env (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, Supabase keys)');
+    return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
+  }
+
+  const stripe = new Stripe(stripeSecretKey, { apiVersion: '2024-11-20.acacia' });
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const rawBody = await request.text();
+  const signature = request.headers.get('stripe-signature') || '';
+
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+  } catch (err) {
+    console.error('Stripe webhook signature verification failed:', err);
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const userId = session.client_reference_id || session.metadata?.user_id;
+        const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+        const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+        if (userId && customerId && subscriptionId) {
+          await supabase
+            .from('profiles')
+            .update({
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscriptionId,
+              subscription_status: 'active',
+            })
+            .eq('id', userId);
+        }
+        break;
+      }
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as Stripe.Subscription;
+        const subscriptionId = sub.id;
+        const status = sub.status;
+        const isActive = status === 'active';
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('stripe_subscription_id', subscriptionId);
+        if (profiles?.length) {
+          await supabase
+            .from('profiles')
+            .update({
+              subscription_status: isActive ? 'active' : 'cancelled',
+              ...(event.type === 'customer.subscription.deleted' ? { stripe_subscription_id: null } : {}),
+            })
+            .eq('id', profiles[0].id);
+        }
+        break;
+      }
+      default:
+        // Unhandled event type
+        break;
+    }
+  } catch (err) {
+    console.error('Stripe webhook handler error:', err);
+    return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 });
+  }
+
+  return NextResponse.json({ received: true });
+}

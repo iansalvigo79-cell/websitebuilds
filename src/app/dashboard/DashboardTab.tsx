@@ -16,6 +16,7 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import AddIcon from '@mui/icons-material/Add';
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import './dashboardtab.css';
 
 // Fallback logo mapping for leagues without logo_url in DB
@@ -367,6 +368,8 @@ export default function DashboardTab() {
                   </Box>
 
                   <Button
+                    component={Link}
+                    href={firstCutoffMatchDay ? `/predictions?matchDayId=${firstCutoffMatchDay.matchDay.id}` : '/predictions'}
                     fullWidth
                     variant="contained"
                     className="prediction-see-btn"
@@ -676,6 +679,8 @@ export default function DashboardTab() {
                             </Button>
                             {(!game.away_goals && !game.home_goals) && (
                               <Button
+                                component={Link}
+                                href={`/predictions?matchDayId=${group.matchDay.id}`}
                                 variant="outlined"
                                 size="small"
                                 className="match-view-btn"

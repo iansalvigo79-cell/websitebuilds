@@ -11,7 +11,9 @@ Stores user profile information.
 | `display_name` | VARCHAR(255) | Player's display name |
 | `team_name` | VARCHAR(255) | Team name (shown on leaderboard) - UNIQUE |
 | `stripe_customer_id` | VARCHAR(255) | Stripe customer reference |
+| `stripe_subscription_id` | VARCHAR(255) | Stripe subscription ID (nullable) |
 | `subscription_status` | VARCHAR(50) | 'inactive', 'active', 'cancelled' |
+| `account_type` | VARCHAR(20) | 'free' or 'paid'; set by Stripe webhooks for access control |
 | `created_at` | TIMESTAMP | Account creation date |
 
 **Example:**
@@ -139,6 +141,36 @@ Player's prediction for a match day's total goals.
   "predicted_total_goals": 24,
   "points": 10,
   "created_at": "2024-08-17T10:15:00"
+}
+```
+
+---
+
+### `prizes`
+Prize competitions: admin creates after each week/month/season, confirms winner, enters description, marks as awarded when sent. No automated payouts.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | Primary key |
+| `type` | TEXT | 'weekly', 'monthly', or 'seasonal' |
+| `period` | TEXT | e.g. '2026-W08', '2026-02', or season UUID |
+| `winner_user_id` | UUID | Foreign key to auth.users |
+| `prize_description` | TEXT | e.g. "Amazon £20 voucher" |
+| `status` | TEXT | 'pending' or 'awarded' |
+| `created_at` | TIMESTAMPTZ | Creation date |
+
+**RLS:** Users can read only their own prizes (for dashboard banner).
+
+**Example:**
+```json
+{
+  "id": "990e8400-e29b-41d4-a716-446665440004",
+  "type": "weekly",
+  "period": "2026-W08",
+  "winner_user_id": "123e4567-e89b-12d3-a456-426614174000",
+  "prize_description": "Amazon £20 gift card",
+  "status": "awarded",
+  "created_at": "2026-02-24T12:00:00Z"
 }
 ```
 

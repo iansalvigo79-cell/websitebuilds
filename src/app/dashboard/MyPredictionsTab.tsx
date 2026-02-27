@@ -45,6 +45,7 @@ interface PredictionRow {
 interface ProfileInfo {
   created_at: string;
   subscription_status: string;
+  account_type?: 'free' | 'paid';
   display_name: string;
 }
 
@@ -89,7 +90,7 @@ export default function MyPredictionsTab() {
 
     const { data: profileData } = await supabase
       .from('profiles')
-      .select('created_at, subscription_status, display_name')
+      .select('created_at, subscription_status, account_type, display_name')
       .eq('id', user.id)
       .maybeSingle();
     if (profileData) setProfile(profileData as ProfileInfo);
@@ -260,7 +261,7 @@ export default function MyPredictionsTab() {
             <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff' }}>
               Goalactico
             </Typography>
-            {profile?.subscription_status === 'active' && (
+            {(profile?.account_type === 'paid' || profile?.subscription_status === 'active') && (
               <Chip icon={<StarIcon sx={{ fontSize: '0.9rem' }} />} label="PAID" size="small" sx={{ bgcolor: 'rgba(234, 179, 8, 0.2)', color: '#eab308', fontWeight: 700 }} />
             )}
           </Stack>

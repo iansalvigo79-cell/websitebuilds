@@ -1,8 +1,8 @@
 "use client";
 
-import { Box, Container, Tabs, Tab, CircularProgress } from '@mui/material';
+import { Box, Container, Tabs, Tab, CircularProgress, Alert, Typography } from '@mui/material';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { AnimatePresence, motion } from 'framer-motion';
 import DashboardTab from './DashboardTab';
@@ -13,8 +13,10 @@ import BlogsTab from './BlogsTab';
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [showSubscriptionSuccess, setShowSubscriptionSuccess] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -27,13 +29,24 @@ export default function DashboardPage() {
       } catch (err) {
         console.error('Auth check error:', err);
         router.push('/signin');
-          return;
-        }
+        return;
+      }
       setIsAuthChecking(false);
     };
-    
+
     checkAuth();
   }, [router]);
+
+  useEffect(() => {
+    const success = searchParams.get('subscription');
+    if (success === 'success') {
+      setShowSubscriptionSuccess(true);
+      // Remove query param from URL without full navigation
+      const url = new URL(window.location.href);
+      url.searchParams.delete('subscription');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+  }, [searchParams]);
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: string) => {
     setActiveTab(newValue);
@@ -78,7 +91,7 @@ export default function DashboardPage() {
             onChange={handleTabChange}
             variant="scrollable"
             allowScrollButtonsMobile
-                        sx={{
+            sx={{
               '& .MuiTabs-indicator': {
                 backgroundColor: '#16a34a',
                 height: 2,
@@ -93,13 +106,13 @@ export default function DashboardPage() {
                 flexDirection: 'row',
                 gap: '8px',
                 '&:hover': {
-                            color: '#fff',
+                  color: '#fff',
                 },
                 '&.Mui-selected': {
                   color: '#16a34a',
-                            },
-                          },
-                        }}
+                },
+              },
+            }}
           >
             <Tab value="dashboard" label="Dashboard" />
             <Tab value="my-predictions" label="My Predictions" />
@@ -108,9 +121,26 @@ export default function DashboardPage() {
             <Tab value="blogs" label="Blogs" />
           </Tabs>
         </Container>
-                    </Box>
+      </Box>
 
       <Container maxWidth="xl" sx={{ py: 4 }}>
+        {showSubscriptionSuccess && (
+          <Alert
+            severity="success"
+            onClose={() => setShowSubscriptionSuccess(false)}
+            sx={{
+              mb: 3,
+              backgroundColor: 'rgba(22, 163, 74, 0.15)',
+              border: '1px solid rgba(22, 163, 74, 0.5)',
+              color: '#fff',
+              '& .MuiAlert-message': { color: '#fff' },
+            }}
+          >
+            <Typography component="span" sx={{ fontWeight: 600 }}>
+              Payment successful. You now have full access to all 4 games — FT Goals, HT Goals, FT Corners, HT Corners.
+            </Typography>
+          </Alert>
+        )}
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}

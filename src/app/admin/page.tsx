@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -8,7 +8,9 @@ import AddIcon from '@mui/icons-material/Add';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import SportsScoreIcon from '@mui/icons-material/SportsScore';
 import { toast } from 'react-toastify';
-import { markPrizeWinner } from './actions';
+import { Prize } from '@/types/database';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -38,16 +40,26 @@ export default function AdminPage() {
   const [actualGoalsInputs, setActualGoalsInputs] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [computingId, setComputingId] = useState<string | null>(null);
-  const [winnerForm, setWinnerForm] = useState({ userId: '', periodType: 'weekly' as 'weekly' | 'monthly' | 'seasonal', periodKey: '' });
-  const [markingWinner, setMarkingWinner] = useState(false);
   const [seasons, setSeasons] = useState<{ id: string; name: string; start_date: string; end_date: string; is_active: boolean }[]>([]);
   const [seasonsLoading, setSeasonsLoading] = useState(false);
   const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_name?: string }[]>([]);
   const [matchDaysLoading, setMatchDaysLoading] = useState(false);
   const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; home_team_name: string; away_team_name: string; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
-  const [winnersList, setWinnersList] = useState<{ id: string; user_id: string; period_type: string; period_key: string }[]>([]);
-  const [winnersLoading, setWinnersLoading] = useState(false);
+  const [prizesList, setPrizesList] = useState<Prize[]>([]);
+  const [prizesLoading, setPrizesLoading] = useState(false);
+  const [prizeForm, setPrizeForm] = useState({
+    type: 'weekly' as 'weekly' | 'monthly' | 'seasonal',
+    period: '',
+    winner_user_id: '',
+    suggested_name: '',
+    prize_description: '',
+  });
+  const [suggestingWinner, setSuggestingWinner] = useState(false);
+  const [suggestNoPredictionsMessage, setSuggestNoPredictionsMessage] = useState<string | null>(null);
+  const [creatingPrize, setCreatingPrize] = useState(false);
+  const [awardingId, setAwardingId] = useState<string | null>(null);
+  const [winnerNames, setWinnerNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const checkAdminAuth = async () => {
@@ -202,23 +214,39 @@ export default function AdminPage() {
     }
   }, []);
 
-  const fetchWinnersList = useCallback(async () => {
-    setWinnersLoading(true);
+  const getSession = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token;
+  }, []);
+
+  const fetchPrizesList = useCallback(async () => {
+    setPrizesLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('prize_winners')
-        .select('id, user_id, period_type, period_key')
-        .order('period_key', { ascending: false })
-        .limit(50);
-      if (error) {
-        setWinnersList([]);
+      const token = await getSession();
+      if (!token) {
+        setPrizesList([]);
+        return;
+      }
+      const res = await fetch('/api/admin/prizes', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.prizes)) {
+        setPrizesList(data.prizes);
+        const userIds = [...new Set(data.prizes.map((p: Prize) => p.winner_user_id).filter(Boolean))];
+        if (userIds.length > 0) {
+          const { data: profiles } = await supabase.from('profiles').select('id, display_name').in('id', userIds);
+          const names: Record<string, string> = {};
+          (profiles || []).forEach((p: { id: string; display_name: string | null }) => {
+            names[p.id] = p.display_name || p.id.slice(0, 8) + '…';
+          });
+          setWinnerNames(names);
+        }
       } else {
-        setWinnersList((data as { id: string; user_id: string; period_type: string; period_key: string }[]) || []);
+        setPrizesList([]);
       }
     } finally {
-      setWinnersLoading(false);
+      setPrizesLoading(false);
     }
-  }, []);
+  }, [getSession]);
 
   useEffect(() => {
     if (tabValue === 0) fetchSeasons();
@@ -230,13 +258,8 @@ export default function AdminPage() {
     if (tabValue === 2) fetchGamesList();
   }, [tabValue, fetchGamesList]);
   useEffect(() => {
-    if (tabValue === 4) fetchWinnersList();
-  }, [tabValue, fetchWinnersList]);
-
-  const getSession = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token;
-  }, []);
+    if (tabValue === 4) fetchPrizesList();
+  }, [tabValue, fetchPrizesList]);
 
   const handleSaveActualGoals = async (matchDayId: string) => {
     const raw = actualGoalsInputs[matchDayId];
@@ -366,7 +389,7 @@ export default function AdminPage() {
             <Tab label="Match Days" />
             <Tab label="Games" />
             <Tab label="Scores" />
-            <Tab label="Winners" />
+            <Tab label="Prizes" icon={<EmojiEventsIcon />} iconPosition="start" />
           </Tabs>
         </Box>
 
@@ -607,84 +630,215 @@ export default function AdminPage() {
         <TabPanel value={tabValue} index={4}>
           <Box>
             <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Prize Winners
+              Prize competitions
             </Typography>
             <Typography sx={{ color: '#999', mb: 2 }}>
-              Mark weekly, monthly or seasonal top performers as winners. Requires <code style={{ color: '#16a34a' }}>prize_winners</code> table (user_id, period_type, period_key).
+              After each week/month/season ends, suggest the top-ranked user as winner, confirm and enter prize description. Mark as awarded once the prize is sent. No automated payouts — you contact winners by email.
             </Typography>
-            {winnersLoading ? (
+
+            <Stack spacing={2} sx={{ mb: 4, p: 2, backgroundColor: 'rgba(22, 163, 74, 0.08)', borderRadius: 1, border: '1px solid rgba(22, 163, 74, 0.25)' }}>
+              <Typography sx={{ color: '#16a34a', fontWeight: 600 }}>Create new prize</Typography>
+              <Stack direction="row" flexWrap="wrap" spacing={2} alignItems="center">
+                <TextField
+                  size="small"
+                  select
+                  label="Type"
+                  value={prizeForm.type}
+                  onChange={(e) => {
+                    setSuggestNoPredictionsMessage(null);
+                    setPrizeForm((p) => ({ ...p, type: e.target.value as 'weekly' | 'monthly' | 'seasonal' }));
+                  }}
+                  SelectProps={{ native: true }}
+                  sx={{ minWidth: 120, input: { color: '#fff' }, label: { color: '#999' } }}
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="seasonal">Seasonal</option>
+                </TextField>
+                <TextField
+                  size="small"
+                  label={prizeForm.type === 'seasonal' ? 'Period (season UUID)' : prizeForm.type === 'monthly' ? 'Period (e.g. 2026-02)' : 'Period (e.g. 2026-W08)'}
+                  value={prizeForm.period}
+                  onChange={(e) => {
+                    setSuggestNoPredictionsMessage(null);
+                    setPrizeForm((p) => ({ ...p, period: e.target.value }));
+                  }}
+                  placeholder={prizeForm.type === 'seasonal' ? 'Season ID' : prizeForm.type === 'monthly' ? 'YYYY-MM' : 'YYYY-Wnn'}
+                  sx={{ minWidth: 180, input: { color: '#fff' }, label: { color: '#999' } }}
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  disabled={suggestingWinner || !prizeForm.period}
+                  onClick={async () => {
+                    setSuggestingWinner(true);
+                    setSuggestNoPredictionsMessage(null);
+                    try {
+                      const token = await getSession();
+                      if (!token) {
+                        toast.error('Please sign in again');
+                        return;
+                      }
+                      const res = await fetch(
+                        `/api/admin/suggested-winner?type=${encodeURIComponent(prizeForm.type)}&period=${encodeURIComponent(prizeForm.period.trim())}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                      );
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok && data.suggested) {
+                        setSuggestNoPredictionsMessage(null);
+                        setPrizeForm((p) => ({
+                          ...p,
+                          winner_user_id: data.suggested.user_id,
+                          suggested_name: `${data.suggested.display_name} (${data.suggested.total_points} pts)`,
+                        }));
+                        toast.success('Top ranked user suggested');
+                      } else {
+                        const message = data.message || data.error || 'Could not get suggested winner';
+                        setPrizeForm((p) => ({ ...p, winner_user_id: '', suggested_name: '' }));
+                        setSuggestNoPredictionsMessage(message);
+                        toast.error(message);
+                      }
+                    } finally {
+                      setSuggestingWinner(false);
+                    }
+                  }}
+                  sx={{ borderColor: '#16a34a', color: '#16a34a' }}
+                >
+                  {suggestingWinner ? '…' : 'SUGGEST WINNER'}
+                </Button>
+              </Stack>
+              {prizeForm.suggested_name && (
+                <Typography sx={{ color: '#fff', fontSize: '0.9rem' }}>
+                  Suggested winner: <strong>{prizeForm.suggested_name}</strong>
+                </Typography>
+              )}
+              {suggestNoPredictionsMessage && (
+                <Typography sx={{ color: '#f59e0b', fontSize: '0.9rem' }}>
+                  {suggestNoPredictionsMessage}
+                </Typography>
+              )}
+              <TextField
+                size="small"
+                label="Prize description (e.g. Amazon £20 voucher)"
+                value={prizeForm.prize_description}
+                onChange={(e) => setPrizeForm((p) => ({ ...p, prize_description: e.target.value }))}
+                fullWidth
+                multiline
+                rows={2}
+                sx={{ input: { color: '#fff' }, label: { color: '#999' }, textarea: { color: '#fff' } }}
+              />
+              <Button
+                variant="contained"
+                disabled={!prizeForm.winner_user_id || creatingPrize}
+                onClick={async () => {
+                  setCreatingPrize(true);
+                  try {
+                    const token = await getSession();
+                    if (!token) {
+                      toast.error('Please sign in again');
+                      return;
+                    }
+                    const res = await fetch('/api/admin/prizes', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({
+                        type: prizeForm.type,
+                        period: prizeForm.period,
+                        winner_user_id: prizeForm.winner_user_id,
+                        prize_description: prizeForm.prize_description || null,
+                      }),
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok) {
+                      toast.success('Prize created');
+                      setPrizeForm({ type: 'weekly', period: '', winner_user_id: '', suggested_name: '', prize_description: '' });
+                      fetchPrizesList();
+                    } else {
+                      toast.error(data.error || 'Failed to create prize');
+                    }
+                  } finally {
+                    setCreatingPrize(false);
+                  }
+                }}
+                sx={{ backgroundColor: '#16a34a', color: '#fff', alignSelf: 'flex-start' }}
+              >
+                {creatingPrize ? 'Creating…' : 'Create prize'}
+              </Button>
+            </Stack>
+
+            <Typography sx={{ color: '#999', mb: 1 }}>All prizes</Typography>
+            {prizesLoading ? (
               <CircularProgress sx={{ color: '#16a34a', mb: 2 }} />
-            ) : winnersList.length > 0 ? (
+            ) : prizesList.length > 0 ? (
               <TableContainer component={Box} sx={{ mb: 2 }}>
                 <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell>User ID</TableCell>
+                      <TableCell>Type</TableCell>
                       <TableCell>Period</TableCell>
-                      <TableCell>Period key</TableCell>
+                      <TableCell>Winner</TableCell>
+                      <TableCell>Prize description</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="right">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {winnersList.map((w) => (
-                      <TableRow key={w.id}>
-                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{w.user_id}</TableCell>
-                        <TableCell>{w.period_type}</TableCell>
-                        <TableCell>{w.period_key}</TableCell>
+                    {prizesList.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell>{p.type}</TableCell>
+                        <TableCell>{p.period}</TableCell>
+                        <TableCell>{winnerNames[p.winner_user_id] ?? p.winner_user_id.slice(0, 8) + '…'}</TableCell>
+                        <TableCell sx={{ maxWidth: 200 }}>{p.prize_description || '—'}</TableCell>
+                        <TableCell>
+                          {p.status === 'awarded' ? (
+                            <Chip size="small" icon={<CheckCircleIcon />} label="Awarded" sx={{ backgroundColor: '#16a34a', color: '#fff' }} />
+                          ) : (
+                            <Chip size="small" label="Pending" sx={{ backgroundColor: '#666', color: '#fff' }} />
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          {p.status === 'pending' && (
+                            <Button
+                              size="small"
+                              disabled={awardingId === p.id}
+                              onClick={async () => {
+                                setAwardingId(p.id);
+                                try {
+                                  const token = await getSession();
+                                  if (!token) {
+                                    toast.error('Please sign in again');
+                                    return;
+                                  }
+                                  const res = await fetch(`/api/admin/prizes/${p.id}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ status: 'awarded' }),
+                                  });
+                                  const data = await res.json().catch(() => ({}));
+                                  if (res.ok) {
+                                    toast.success('Marked as awarded');
+                                    fetchPrizesList();
+                                  } else {
+                                    toast.error(data.error || 'Failed');
+                                  }
+                                } finally {
+                                  setAwardingId(null);
+                                }
+                              }}
+                              sx={{ color: '#16a34a' }}
+                            >
+                              {awardingId === p.id ? '…' : 'Mark as awarded'}
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
-            ) : null}
-            <Stack direction="row" flexWrap="wrap" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-              <TextField
-                size="small"
-                label="User ID"
-                value={winnerForm.userId}
-                onChange={(e) => setWinnerForm((p) => ({ ...p, userId: e.target.value }))}
-                sx={{ minWidth: 280, input: { color: '#fff' }, label: { color: '#999' } }}
-              />
-              <TextField
-                size="small"
-                select
-                label="Period"
-                value={winnerForm.periodType}
-                onChange={(e) => setWinnerForm((p) => ({ ...p, periodType: e.target.value as 'weekly' | 'monthly' | 'seasonal' }))}
-                SelectProps={{ native: true }}
-                sx={{ minWidth: 120, input: { color: '#fff' }, label: { color: '#999' } }}
-              >
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="seasonal">Seasonal</option>
-              </TextField>
-              <TextField
-                size="small"
-                label="Period key (e.g. 2026-W08, 2026-02, season-1)"
-                value={winnerForm.periodKey}
-                onChange={(e) => setWinnerForm((p) => ({ ...p, periodKey: e.target.value }))}
-                sx={{ minWidth: 220, input: { color: '#fff' }, label: { color: '#999' } }}
-              />
-              <Button
-                variant="contained"
-                disabled={!winnerForm.userId || !winnerForm.periodKey || markingWinner}
-                onClick={async () => {
-                  setMarkingWinner(true);
-                  try {
-                    const result = await markPrizeWinner(winnerForm.userId, winnerForm.periodType, winnerForm.periodKey);
-                    if (result.ok) {
-                      toast.success('Winner marked');
-                      setWinnerForm((p) => ({ ...p, userId: '', periodKey: '' }));
-                      fetchWinnersList();
-                    } else toast.error(result.error);
-                  } finally {
-                    setMarkingWinner(false);
-                  }
-                }}
-                sx={{ backgroundColor: '#16a34a', color: '#fff' }}
-              >
-                {markingWinner ? 'Saving…' : 'Mark winner'}
-              </Button>
-            </Stack>
+            ) : (
+              <Typography sx={{ color: '#999' }}>No prizes yet. Create one above using Suggest winner for a period.</Typography>
+            )}
           </Box>
         </TabPanel>
 

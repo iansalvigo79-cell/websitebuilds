@@ -29,13 +29,13 @@ export function useRequirePaid(): { isPaid: boolean; isLoading: boolean } {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('subscription_status')
+        .select('account_type, subscription_status')
         .eq('id', user.id)
         .maybeSingle();
 
       if (cancelled) return;
 
-      const paid = profile?.subscription_status === 'active';
+      const paid = profile?.account_type === 'paid' || profile?.subscription_status === 'active';
       setIsPaid(paid);
       setIsLoading(false);
 

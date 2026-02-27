@@ -40,6 +40,20 @@ export function getMatchDayStatus(
 }
 
 /**
+ * Whether the matchday is past cutoff (no more edits allowed).
+ * Uses cutoff_at from match_days when present; otherwise falls back to first game kickoff.
+ */
+export function isAfterCutoff(
+  cutoffAt: string | null | undefined,
+  games: GameForLock[]
+): boolean {
+  if (cutoffAt) {
+    return new Date().getTime() >= new Date(cutoffAt).getTime();
+  }
+  return isMatchDayLocked(games);
+}
+
+/**
  * Whether the user can edit predictions (not locked, and optionally only FT goals for free users).
  */
 export function canUpdatePrediction(

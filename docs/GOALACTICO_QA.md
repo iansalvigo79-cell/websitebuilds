@@ -48,18 +48,7 @@ Use this checklist to verify core flows before release.
 
 ## Prize winners table (optional)
 
-To use Admin → Winners, create in Supabase:
-
-```sql
-CREATE TABLE IF NOT EXISTS prize_winners (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  period_type TEXT NOT NULL CHECK (period_type IN ('weekly', 'monthly', 'seasonal')),
-  period_key TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(period_type, period_key)
-);
-```
+**Prize competitions:** Run the migration in `supabase/migrations/20250224000000_create_prizes.sql` in the Supabase SQL Editor to create the `prizes` table. Admin → Prizes tab then lets you suggest the top-ranked user for a period, create a prize with description, and mark as awarded when sent. Users who have won a prize see a dashboard banner: "You won a prize! Check your email."
 
 ## Environment variables
 

@@ -6,6 +6,8 @@ export interface Profile {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   subscription_status: 'inactive' | 'active' | 'cancelled';
+  /** Set by Stripe webhooks: 'paid' = full access, 'free' = core only */
+  account_type: 'free' | 'paid';
   created_at: string;
 }
 
@@ -88,5 +90,19 @@ export interface PrizeWinner {
   user_id: string;
   period_type: 'weekly' | 'monthly' | 'seasonal';
   period_key: string;
+  created_at: string;
+}
+
+/** Prize competition: admin creates after period ends, confirms winner, marks awarded when sent. */
+export type PrizeType = 'weekly' | 'monthly' | 'seasonal';
+export type PrizeStatus = 'pending' | 'awarded';
+
+export interface Prize {
+  id: string;
+  type: PrizeType;
+  period: string;
+  winner_user_id: string;
+  prize_description: string | null;
+  status: PrizeStatus;
   created_at: string;
 }

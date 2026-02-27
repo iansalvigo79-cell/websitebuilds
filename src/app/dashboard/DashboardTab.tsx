@@ -17,6 +17,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import PrizeWidget from './PrizeWidget';
 import './dashboardtab.css';
 
 // Fallback logo mapping for leagues without logo_url in DB
@@ -286,7 +287,9 @@ export default function DashboardTab() {
   };
 
   return (
-    <Grid container spacing={3}>
+    <Box>
+      <PrizeWidget />
+      <Grid container spacing={3}>
       {/* Left Sidebar */}
       <Grid item xs={12} md={3}>
         <Stack spacing={3}>
@@ -713,5 +716,6 @@ export default function DashboardTab() {
         </Stack>
       </Grid>
     </Grid>
+    </Box>
   );
 }

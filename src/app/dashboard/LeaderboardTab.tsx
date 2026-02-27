@@ -513,7 +513,6 @@ export default function LeaderboardTab() {
                   <TableBody>
                     {matchdayLeaderboard.map((row) => {
                       const tag = getAccuracyTag(row.diff);
-                      console.log("Joing Wi Ryong: ", row);
                       return (
                         <TableRow key={row.user_id}>
                           <TableCell>

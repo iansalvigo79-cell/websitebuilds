@@ -20,9 +20,9 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { MatchDay } from '@/types/database';
-import { isMatchDayLocked, getMatchDayStatus } from '@/lib/predictionRules';
+import { isMatchDayLocked, isAfterCutoff, getMatchDayStatus } from '@/lib/predictionRules';
+import Link from 'next/link';
 
 interface GameRow {
   id: string;
@@ -62,6 +62,61 @@ function formatShortDate(dateString: string | null | undefined) {
   return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function PredictionRow({
+  label,
+  desc,
+  value,
+  onChange,
+  disabled,
+  showUpgrade,
+}: {
+  label: string;
+  desc: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+  showUpgrade: boolean;
+}) {
+  return (
+    <Card sx={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 2 }}>
+      <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flex: 1, minWidth: 0 }}>
+          <CheckCircleIcon sx={{ color: '#16a34a', fontSize: '1.25rem', mt: 0.25, flexShrink: 0 }} />
+          <Box>
+            <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600 }}>{label}</Typography>
+            <Typography sx={{ color: '#999', fontSize: '0.85rem' }}>{desc}</Typography>
+          </Box>
+        </Box>
+        {showUpgrade ? (
+          <Link
+            href="/paywall"
+            style={{ color: '#16a34a', fontSize: '0.9rem', fontWeight: 600 }}
+          >
+            Upgrade to unlock
+          </Link>
+        ) : (
+          <TextField
+            size="small"
+            type="number"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            inputProps={{ min: 0, style: { color: '#fff', textAlign: 'right' } }}
+            sx={{
+              width: 80,
+              '& .MuiOutlinedInput-root': {
+                backgroundColor: '#111',
+                color: '#fff',
+                '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
+              },
+            }}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PredictionsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -72,6 +127,9 @@ export default function PredictionsPage() {
   const [selectedMatchDay, setSelectedMatchDay] = useState<MatchDayWithMeta | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [ftGoals, setFtGoals] = useState<string>('');
+  const [htGoals, setHtGoals] = useState<string>('');
+  const [ftCorners, setFtCorners] = useState<string>('');
+  const [htCorners, setHtCorners] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [isPaidUser, setIsPaidUser] = useState(false);
 
@@ -185,23 +243,30 @@ export default function PredictionsPage() {
     fetchMatchDays();
   }, [fetchMatchDays]);
 
-  // Load user profile (subscription) and existing prediction when selected match day changes
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('subscription_status')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (!cancelled) {
-        setIsPaidUser(profile?.subscription_status === 'active');
-      }
-    })();
-    return () => { cancelled = true; };
+  // Profile is updated by /api/stripe/webhook after checkout (paywall → checkout → Stripe → webhook → profiles)
+  const fetchProfilePaidStatus = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('account_type, subscription_status')
+      .eq('id', user.id)
+      .maybeSingle();
+    setIsPaidUser(profile?.account_type === 'paid' || profile?.subscription_status === 'active');
   }, []);
+
+  // Load user profile (subscription) on mount and when returning from payment
+  useEffect(() => {
+    fetchProfilePaidStatus();
+  }, [fetchProfilePaidStatus]);
+
+  // Refetch profile when page becomes visible (e.g. after returning from Stripe/paywall) or when subscription=success
+  useEffect(() => {
+    if (searchParams.get('subscription') === 'success') fetchProfilePaidStatus();
+    const onVisibility = () => { if (document.visibilityState === 'visible') fetchProfilePaidStatus(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [searchParams, fetchProfilePaidStatus]);
 
   useEffect(() => {
     if (!selectedMatchDay) {
@@ -227,9 +292,18 @@ export default function PredictionsPage() {
     return () => { cancelled = true; };
   }, [selectedMatchDay?.id]);
 
+  const afterCutoff = selectedMatchDay
+    ? isAfterCutoff(selectedMatchDay.cutoff_at, selectedMatchDay.games)
+    : false;
+  const lockedByKickoff = selectedMatchDay ? isMatchDayLocked(selectedMatchDay.games) : false;
+
   const handleUpdatePrediction = async () => {
     if (!selectedMatchDay) return;
-    const locked = isMatchDayLocked(selectedMatchDay.games);
+    if (afterCutoff) {
+      toast.error('Predictions are locked after the cutoff time.');
+      return;
+    }
+    const locked = lockedByKickoff;
     if (locked) {
       toast.error('Predictions are locked after the first match kicks off.');
       return;
@@ -440,84 +514,56 @@ export default function PredictionsPage() {
                       Your Predictions
                     </Typography>
                     <Stack spacing={2}>
-                      {/* Full-Time Goals - editable with checkmark */}
-                      <Card sx={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 2 }}>
-                        <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flex: 1, minWidth: 0 }}>
-                            <CheckCircleIcon sx={{ color: '#16a34a', fontSize: '1.25rem', mt: 0.25, flexShrink: 0 }} />
-                            <Box>
-                              <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600 }}>
-                                Full-Time Goals
-                              </Typography>
-                              <Typography sx={{ color: '#999', fontSize: '0.85rem' }}>
-                                Total combined FT goals across all matches.
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <TextField
-                            size="small"
-                            type="number"
-                            value={ftGoals}
-                            onChange={(e) => setFtGoals(e.target.value)}
-                            disabled={isMatchDayLocked(selectedMatchDay.games)}
-                            inputProps={{ min: 0, style: { color: '#fff', textAlign: 'right' } }}
-                            sx={{
-                              width: 80,
-                              '& .MuiOutlinedInput-root': {
-                                backgroundColor: '#111',
-                                color: '#fff',
-                                '& fieldset': { borderColor: 'rgba(255,255,255,0.2)' },
-                              },
-                            }}
-                          />
-                        </CardContent>
-                      </Card>
-                      {/* Premium prediction types */}
-                      {[
-                        { label: 'Half-Time Goals', desc: 'Total combined HT goals across all matches.' },
-                        { label: 'Full-Time Corners', desc: 'Total combined FT corners across all matches.' },
-                        { label: 'Half-Time Corners', desc: 'Total combined HT corners across all matches.' },
-                      ].map(({ label, desc }) => (
-                        <Card key={label} sx={{ backgroundColor: '#1a1a1a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 2 }}>
-                          <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, flex: 1, minWidth: 0 }}>
-                              <Box sx={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid #666', mt: 0.25, flexShrink: 0 }} />
-                              <Box>
-                                <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600 }}>
-                                  {label}
-                                </Typography>
-                                <Typography sx={{ color: '#999', fontSize: '0.85rem' }}>
-                                  {desc}
-                                </Typography>
-                              </Box>
-                            </Box>
-                            <Stack direction="row" alignItems="center" spacing={1}>
-                              <Chip label="Premium" size="small" sx={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b' }} />
-                              <HelpOutlineIcon sx={{ color: '#999', fontSize: '1.2rem' }} />
-                            </Stack>
-                          </CardContent>
-                        </Card>
-                      ))}
+                      {/* Full-Time Goals: always show input; disabled after cutoff */}
+                      <PredictionRow
+                        label="Full-Time Goals"
+                        desc="Total combined FT goals across all matches."
+                        value={ftGoals}
+                        onChange={setFtGoals}
+                        disabled={afterCutoff}
+                        showUpgrade={false}
+                      />
+                      {/* Half-Time Goals: paid before cutoff = input; free = Upgrade to unlock; after cutoff = disabled input */}
+                      <PredictionRow
+                        label="Half-Time Goals"
+                        desc="Total combined HT goals across all matches."
+                        value={htGoals}
+                        onChange={setHtGoals}
+                        disabled={afterCutoff}
+                        showUpgrade={!isPaidUser && !afterCutoff}
+                      />
+                      <PredictionRow
+                        label="Full-Time Corners"
+                        desc="Total combined FT corners across all matches."
+                        value={ftCorners}
+                        onChange={setFtCorners}
+                        disabled={afterCutoff}
+                        showUpgrade={!isPaidUser && !afterCutoff}
+                      />
+                      <PredictionRow
+                        label="Half-Time Corners"
+                        desc="Total combined HT corners across all matches."
+                        value={htCorners}
+                        onChange={setHtCorners}
+                        disabled={afterCutoff}
+                        showUpgrade={!isPaidUser && !afterCutoff}
+                      />
                     </Stack>
                   </Box>
 
                   <Button
                     variant="contained"
                     fullWidth
-                    disabled={isSaving || isMatchDayLocked(selectedMatchDay.games)}
+                    disabled={isSaving || afterCutoff}
                     onClick={handleUpdatePrediction}
                     sx={{
                       py: 1.5,
-                      backgroundColor: isMatchDayLocked(selectedMatchDay.games) ? '#555' : '#16a34a',
+                      backgroundColor: afterCutoff ? '#555' : '#16a34a',
                       fontWeight: 700,
-                      '&:hover': { backgroundColor: isMatchDayLocked(selectedMatchDay.games) ? '#555' : '#15803d' },
+                      '&:hover': { backgroundColor: afterCutoff ? '#555' : '#15803d' },
                     }}
                   >
-                    {isMatchDayLocked(selectedMatchDay.games)
-                      ? 'Predictions locked'
-                      : isSaving
-                        ? 'Saving…'
-                        : 'Update Prediction'}
+                    {afterCutoff ? 'PREDICTIONS LOCKED' : isSaving ? 'Saving…' : 'Save Predictions'}
                   </Button>
                 </Stack>
               )}

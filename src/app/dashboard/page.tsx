@@ -8,7 +8,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import DashboardTab from './DashboardTab';
 import MyPredictionsTab from './MyPredictionsTab';
 import LeaderboardTab from './LeaderboardTab';
-import LeaguesTab from './LeaguesTab';
 import BlogsTab from './BlogsTab';
 
 // ── Separate component for useSearchParams ────────────────────────────────────
@@ -65,7 +64,6 @@ function DashboardPageContent() {
       case 'dashboard':      return <DashboardTab />;
       case 'my-predictions': return <MyPredictionsTab />;
       case 'leaderboard':    return <LeaderboardTab />;
-      case 'leagues':        return <LeaguesTab />;
       case 'blogs':          return <BlogsTab />;
       default:               return <DashboardTab />;
     }
@@ -117,7 +115,6 @@ function DashboardPageContent() {
             <Tab value="dashboard"       label="Dashboard" />
             <Tab value="my-predictions"  label="My Predictions" />
             <Tab value="leaderboard"     label="Leaderboard" />
-            <Tab value="leagues"         label="Leagues" />
             <Tab value="blogs"           label="Blogs" />
           </Tabs>
         </Container>

@@ -8,6 +8,8 @@ export interface Profile {
   subscription_status: 'inactive' | 'active' | 'cancelled';
   /** Set by Stripe webhooks: 'paid' = full access, 'free' = core only */
   account_type: 'free' | 'paid';
+  /** User role: 1 = admin, 0 = regular user */
+  role: 0 | 1;
   created_at: string;
 }
 

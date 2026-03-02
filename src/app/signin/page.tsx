@@ -87,9 +87,20 @@ export default function SignInPage() {
       }
 
       if (data.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .single();
+
         toast.success('Success');
+
         setTimeout(() => {
-          router.push('/dashboard');
+          if (profile?.role === 1 || profile?.role === '1') {
+            router.push('/admin');
+          } else {
+            router.push('/dashboard');
+          }
         }, 500);
       }
     } catch (err) {
@@ -98,7 +109,6 @@ export default function SignInPage() {
       setIsLoading(false);
     }
   };
-
 
   return (
     <Box

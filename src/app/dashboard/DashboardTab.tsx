@@ -18,7 +18,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import PrizeWidget from './PrizeWidget';
-import './dashboardtab.css';
+import './DashboardTab.css';
+// import './DashboardTab.css';
 
 // Fallback logo mapping for leagues without logo_url in DB
 const LEAGUE_LOGO_FALLBACK: Record<string, string> = {

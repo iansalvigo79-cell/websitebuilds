@@ -78,7 +78,7 @@ export default function RootLayout({
         {/* Google Fonts for heading style */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700;900&family=Bebas+Neue&family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet" />
+        {/* <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700;900&family=Bebas+Neue&family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet" /> */}
         <link rel="icon" type="image/png" href="/assets/images/logo.png" />
         <title>GamePredict - Football Game Predictions</title>
         <meta name="description" content="AI-powered football game predictions" />

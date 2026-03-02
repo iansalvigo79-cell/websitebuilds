@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -42,7 +42,7 @@ export default function AdminPage() {
   const [computingId, setComputingId] = useState<string | null>(null);
   const [seasons, setSeasons] = useState<{ id: string; name: string; start_date: string; end_date: string; is_active: boolean }[]>([]);
   const [seasonsLoading, setSeasonsLoading] = useState(false);
-  const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_name?: string }[]>([]);
+  const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_id?: string; season_name?: string }[]>([]);
   const [matchDaysLoading, setMatchDaysLoading] = useState(false);
   const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; home_team_name: string; away_team_name: string; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
@@ -60,6 +60,12 @@ export default function AdminPage() {
   const [creatingPrize, setCreatingPrize] = useState(false);
   const [awardingId, setAwardingId] = useState<string | null>(null);
   const [winnerNames, setWinnerNames] = useState<Record<string, string>>({});
+  const [matchDayDialogOpen, setMatchDayDialogOpen] = useState(false);
+  const [matchDayForm, setMatchDayForm] = useState<{ seasonId: string; matchDate: string; cutoffAt: string }>({
+    seasonId: '',
+    matchDate: '',
+    cutoffAt: '',
+  });
 
   useEffect(() => {
     const checkAdminAuth = async () => {
@@ -71,12 +77,24 @@ export default function AdminPage() {
           return;
         }
 
-        // In production, check if user has admin role
-        // For now, we'll allow access based on email domain or manual admin setup
+        // Check if user has admin role (role = 1)
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', authUser.id)
+          .single();
+
+        if (error || !profile || profile.role !== 1) {
+          toast.error('Access denied. Admin privileges required.');
+          router.push('/dashboard');
+          return;
+        }
+
         setIsLoading(false);
       } catch (err) {
         console.error('Supabase Auth Error (admin checkAuth):', err);
         toast.error('Authentication failed');
+        router.push('/dashboard');
         setIsLoading(false);
       }
     };
@@ -154,6 +172,7 @@ export default function AdminPage() {
           id: md.id,
           match_date: md.match_date,
           cutoff_at: md.cutoff_at,
+          season_id: md.season_id,
           season_name: md.seasons?.name ?? '—',
         })));
       }
@@ -249,7 +268,7 @@ export default function AdminPage() {
   }, [getSession]);
 
   useEffect(() => {
-    if (tabValue === 0) fetchSeasons();
+    if (tabValue === 0 || tabValue === 1) fetchSeasons();
   }, [tabValue, fetchSeasons]);
   useEffect(() => {
     if (tabValue === 1) fetchMatchDaysList();
@@ -349,6 +368,32 @@ export default function AdminPage() {
     }
   };
 
+  const handleCreateMatchDay = async () => {
+    if (!matchDayForm.seasonId || !matchDayForm.matchDate || !matchDayForm.cutoffAt) {
+      toast.error('Please select a season, match date and cutoff time');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('match_days').insert({
+        season_id: matchDayForm.seasonId,
+        match_date: matchDayForm.matchDate,
+        cutoff_at: matchDayForm.cutoffAt,
+        is_open: true,
+      });
+      if (error) {
+        toast.error('Error creating match day: ' + error.message);
+        return;
+      }
+      toast.success('Match day created');
+      setMatchDayForm({ seasonId: '', matchDate: '', cutoffAt: '' });
+      setMatchDayDialogOpen(false);
+      fetchMatchDaysList();
+    } catch (err) {
+      console.error('Unexpected Error (admin createMatchDay):', err);
+      toast.error('An error occurred');
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/');
@@ -363,26 +408,49 @@ export default function AdminPage() {
   }
 
   return (
-    <Box className="anim-fade-up" sx={{ minHeight: '100vh', backgroundColor: '#0a0a0a', py: 4 }}>
+    <Box sx={{ minHeight: '100vh', backgroundColor: '#0f172a', py: 4 }}>
       <Container maxWidth="lg">
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-          <Typography variant="h3" sx={{ fontWeight: 900, color: '#fff' }}>
-            Admin Panel
-          </Typography>
-          <Button onClick={handleLogout} sx={{ color: '#16a34a', borderColor: '#16a34a' }} variant="outlined">
+        {/* Header */}
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 6, pb: 4, borderBottom: '1px solid rgba(148, 163, 184, 0.2)' }}>
+          <Box>
+            <Typography variant="h3" sx={{ fontWeight: 900, color: '#fff', mb: 0.5 }}>
+              Admin Panel
+            </Typography>
+            <Typography sx={{ color: '#94a3b8', fontSize: '0.95rem' }}>
+              Manage seasons, match days, games, scores, and prizes
+            </Typography>
+          </Box>
+          <Button 
+            onClick={handleLogout} 
+            variant="outlined"
+            sx={{ 
+              color: '#f87171', 
+              borderColor: '#f87171',
+              textTransform: 'none',
+              fontWeight: 600,
+              '&:hover': { backgroundColor: 'rgba(248, 113, 113, 0.1)', borderColor: '#f87171' }
+            }}
+          >
             Logout
           </Button>
         </Box>
 
-
-        <Box sx={{ borderBottom: '1px solid rgba(255, 255, 255, 0.2)', mb: 3 }}>
+        {/* Tabs Navigation */}
+        <Box sx={{ borderBottom: '1px solid rgba(148, 163, 184, 0.2)', mb: 4 }}>
           <Tabs
             value={tabValue}
             onChange={(_, newValue) => setTabValue(newValue)}
             sx={{
-              '& .MuiTab-root': { color: '#999' },
+              '& .MuiTab-root': { 
+                color: '#64748b',
+                textTransform: 'none',
+                fontSize: '0.95rem',
+                fontWeight: 600,
+                minHeight: 48,
+                '&:hover': { color: '#16a34a' }
+              },
               '& .Mui-selected': { color: '#16a34a' },
-              '& .MuiTabs-indicator': { backgroundColor: '#16a34a' },
+              '& .MuiTabs-indicator': { backgroundColor: '#16a34a', height: 3 },
             }}
           >
             <Tab label="Seasons" />
@@ -395,463 +463,617 @@ export default function AdminPage() {
 
         <TabPanel value={tabValue} index={0}>
           <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700 }}>
-                Manage Seasons
-              </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 4 }}>
+              <Box>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
+                  Manage Seasons
+                </Typography>
+                <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>Create and manage football seasons for the league.</Typography>
+              </Box>
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
                 onClick={() => setOpenDialog(true)}
                 sx={{
                   backgroundColor: '#16a34a',
-                  color: '#0f0505',
+                  color: '#fff',
                   fontWeight: 700,
-                  '&:hover': { backgroundColor: '#137f2d' },
+                  textTransform: 'none',
+                  '&:hover': { backgroundColor: '#15803d' },
                 }}
               >
                 New Season
               </Button>
             </Box>
-            <Typography sx={{ color: '#999', mb: 2 }}>Create and manage football seasons.</Typography>
             {seasonsLoading ? (
-              <CircularProgress sx={{ color: '#16a34a' }} />
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress sx={{ color: '#16a34a' }} />
+              </Box>
+            ) : seasons.length === 0 ? (
+              <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
+                <Typography sx={{ color: '#64748b' }}>No seasons yet. Create one to get started.</Typography>
+              </Box>
             ) : (
-              <TableContainer component={Box} sx={{ mb: 2 }}>
-                <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Name</TableCell>
-                      <TableCell>Start date</TableCell>
-                      <TableCell>End date</TableCell>
-                      <TableCell>Active</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {seasons.map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell>{s.name}</TableCell>
-                        <TableCell>{s.start_date}</TableCell>
-                        <TableCell>{s.end_date}</TableCell>
-                        <TableCell>{s.is_active ? 'Yes' : 'No'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-            {!seasonsLoading && seasons.length === 0 && (
-              <Typography sx={{ color: '#999' }}>No seasons yet. Create one above.</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+                {seasons.map((s) => (
+                  <Box
+                    key={s.id}
+                    sx={{
+                      p: 2.5,
+                      backgroundColor: 'rgba(100, 116, 139, 0.08)',
+                      border: '1px solid rgba(100, 116, 139, 0.2)',
+                      borderRadius: 2,
+                      '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.12)' }
+                    }}
+                  >
+                    <Typography sx={{ color: '#fff', fontWeight: 700, mb: 1.5 }}>{s.name}</Typography>
+                    <Stack spacing={1}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography sx={{ color: '#64748b', fontSize: '0.85rem' }}>Start:</Typography>
+                        <Typography sx={{ color: '#e2e8f0', fontSize: '0.85rem', fontWeight: 600 }}>{s.start_date}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography sx={{ color: '#64748b', fontSize: '0.85rem' }}>End:</Typography>
+                        <Typography sx={{ color: '#e2e8f0', fontSize: '0.85rem', fontWeight: 600 }}>{s.end_date}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 1, borderTop: '1px solid rgba(100, 116, 139, 0.2)' }}>
+                        <Typography sx={{ color: '#64748b', fontSize: '0.85rem' }}>Active:</Typography>
+                        <Chip
+                          label={s.is_active ? 'Active' : 'Inactive'}
+                          size="small"
+                          sx={{
+                            backgroundColor: s.is_active ? 'rgba(22, 163, 74, 0.25)' : 'rgba(100, 116, 139, 0.25)',
+                            color: s.is_active ? '#16a34a' : '#64748b',
+                            fontWeight: 600
+                          }}
+                        />
+                      </Box>
+                    </Stack>
+                  </Box>
+                ))}
+              </Box>
             )}
           </Box>
         </TabPanel>
 
         <TabPanel value={tabValue} index={1}>
           <Box>
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Match Days
-            </Typography>
-            <Typography sx={{ color: '#999', mb: 2 }}>Match days and cutoff times for predictions.</Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 4 }}>
+              <Box>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
+                  Match Days
+                </Typography>
+                <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>Create and manage match day schedules with cutoff times.</Typography>
+              </Box>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setMatchDayDialogOpen(true)}
+                sx={{
+                  backgroundColor: '#16a34a',
+                  color: '#fff',
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  '&:hover': { backgroundColor: '#15803d' },
+                }}
+              >
+                New Match Day
+              </Button>
+            </Box>
             {matchDaysLoading ? (
-              <CircularProgress sx={{ color: '#16a34a' }} />
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress sx={{ color: '#16a34a' }} />
+              </Box>
+            ) : matchDaysList.length === 0 ? (
+              <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
+                <Typography sx={{ color: '#64748b' }}>No match days found. Create one to get started.</Typography>
+              </Box>
             ) : (
-              <TableContainer component={Box} sx={{ mb: 2 }}>
-                <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
-                  <TableHead>
+              <TableContainer component={Box} sx={{ backgroundColor: 'rgba(100, 116, 139, 0.05)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)' }}>
+                <Table sx={{ '& td, & th': { borderColor: 'rgba(100, 116, 139, 0.2)', color: '#e2e8f0', padding: '16px' } }}>
+                  <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
                     <TableRow>
-                      <TableCell>Match date</TableCell>
-                      <TableCell>Season</TableCell>
-                      <TableCell>Cutoff</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Match Date</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Season</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Cutoff Time</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Status</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {matchDaysList.map((md) => (
-                      <TableRow key={md.id}>
+                      <TableRow key={md.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{md.match_date}</TableCell>
                         <TableCell>{md.season_name}</TableCell>
-                        <TableCell>{md.cutoff_at ? new Date(md.cutoff_at).toLocaleString() : '—'}</TableCell>
+                        <TableCell>{md.cutoff_at ? new Date(md.cutoff_at).toLocaleString('en-GB') : '—'}</TableCell>
+                        <TableCell align="right">
+                          {md.cutoff_at ? (
+                            <Chip
+                              size="small"
+                              label={new Date(md.cutoff_at).getTime() > Date.now() ? 'Open' : 'Closed'}
+                              sx={{
+                                backgroundColor: new Date(md.cutoff_at).getTime() > Date.now() ? 'rgba(22, 163, 74, 0.25)' : 'rgba(148, 163, 184, 0.25)',
+                                color: new Date(md.cutoff_at).getTime() > Date.now() ? '#16a34a' : '#94a3b8',
+                                fontWeight: 600
+                              }}
+                            />
+                          ) : (
+                            <Chip size="small" label="No cutoff" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#64748b' }} />
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
-            )}
-            {!matchDaysLoading && matchDaysList.length === 0 && (
-              <Typography sx={{ color: '#999' }}>No match days in the database.</Typography>
             )}
           </Box>
         </TabPanel>
 
         <TabPanel value={tabValue} index={2}>
           <Box>
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Games
-            </Typography>
-            <Typography sx={{ color: '#999', mb: 2 }}>Games per match day.</Typography>
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
+                Games
+              </Typography>
+              <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>View all games assigned to match days.</Typography>
+            </Box>
             {gamesLoading ? (
-              <CircularProgress sx={{ color: '#16a34a' }} />
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress sx={{ color: '#16a34a' }} />
+              </Box>
+            ) : gamesList.length === 0 ? (
+              <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
+                <Typography sx={{ color: '#64748b' }}>No games found.</Typography>
+              </Box>
             ) : (
-              <TableContainer component={Box} sx={{ mb: 2, maxHeight: 440, overflow: 'auto' }}>
-                <Table size="small" stickyHeader sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
-                  <TableHead>
+              <TableContainer component={Box} sx={{ backgroundColor: 'rgba(100, 116, 139, 0.05)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', maxHeight: '60vh', overflow: 'auto' }}>
+                <Table stickyHeader sx={{ '& td, & th': { borderColor: 'rgba(100, 116, 139, 0.2)', color: '#e2e8f0', padding: '16px' } }}>
+                  <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
                     <TableRow>
-                      <TableCell>Home</TableCell>
-                      <TableCell>Away</TableCell>
-                      <TableCell>Kickoff</TableCell>
-                      <TableCell align="right">Score</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Home Team</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Away Team</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Kickoff</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Score</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {gamesList.map((g) => (
-                      <TableRow key={g.id}>
+                      <TableRow key={g.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{g.home_team_name}</TableCell>
                         <TableCell>{g.away_team_name}</TableCell>
-                        <TableCell>{g.kickoff_at ? new Date(g.kickoff_at).toLocaleString() : '—'}</TableCell>
+                        <TableCell>{g.kickoff_at ? new Date(g.kickoff_at).toLocaleString('en-GB') : '—'}</TableCell>
                         <TableCell align="right">
-                          {g.home_goals != null && g.away_goals != null ? `${g.home_goals} – ${g.away_goals}` : '—'}
+                          {g.home_goals != null && g.away_goals != null ? (
+                            <Box sx={{ fontWeight: 700, color: '#16a34a' }}>{g.home_goals} – {g.away_goals}</Box>
+                          ) : (
+                            <Typography sx={{ color: '#64748b' }}>—</Typography>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
-            )}
-            {!gamesLoading && gamesList.length === 0 && (
-              <Typography sx={{ color: '#999' }}>No games in the database.</Typography>
             )}
           </Box>
         </TabPanel>
 
         <TabPanel value={tabValue} index={3}>
           <Box>
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Enter Final Scores
-            </Typography>
-            <Typography sx={{ color: '#999', mb: 2 }}>
-              Set actual total goals per match day (manually or compute from game scores), then run the points calculation.
-            </Typography>
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
+                Enter Final Scores
+              </Typography>
+              <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>
+                Set actual total goals, compute from game scores, and calculate player points.
+              </Typography>
+            </Box>
+
+            {/* Scores Table */}
             {scoresLoading ? (
-              <CircularProgress sx={{ color: '#16a34a' }} />
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress sx={{ color: '#16a34a' }} />
+              </Box>
             ) : matchDaysForScores.length === 0 ? (
-              <Typography sx={{ color: '#999', mb: 2 }}>No match days found. Add match days in the Match Days tab (or ensure seasons exist).</Typography>
+              <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center', mb: 3 }}>
+                <Typography sx={{ color: '#64748b' }}>No match days found. Create match days first.</Typography>
+              </Box>
             ) : (
-              <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' }, mb: 2 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Match date</TableCell>
-                    <TableCell>Season</TableCell>
-                    <TableCell>Actual total goals</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {matchDaysForScores.map((md) => (
-                    <TableRow key={md.id}>
-                      <TableCell>{md.match_date}</TableCell>
-                      <TableCell>{md.season_name}</TableCell>
-                      <TableCell>
-                        <TextField
-                          type="number"
-                          size="small"
-                          value={actualGoalsInputs[md.id] ?? (md.actual_total_goals != null ? String(md.actual_total_goals) : '')}
-                          onChange={(e) => setActualGoalsInputs((prev) => ({ ...prev, [md.id]: e.target.value }))}
-                          inputProps={{ min: 0 }}
-                          sx={{ width: 80, input: { color: '#fff' } }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Button
-                          size="small"
-                          onClick={() => handleSaveActualGoals(md.id)}
-                          disabled={savingId === md.id}
-                          sx={{ mr: 1, color: '#16a34a' }}
-                        >
-                          {savingId === md.id ? 'Saving…' : 'Save'}
-                        </Button>
-                        <Button
-                          size="small"
-                          startIcon={computingId === md.id ? <CircularProgress size={14} sx={{ color: '#16a34a' }} /> : <SportsScoreIcon />}
-                          onClick={() => handleComputeFromGames(md.id)}
-                          disabled={computingId === md.id}
-                          sx={{ color: '#f59e0b' }}
-                        >
-                          From games
-                        </Button>
-                      </TableCell>
+              <Box sx={{ mb: 4, backgroundColor: 'rgba(100, 116, 139, 0.05)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', overflow: 'auto' }}>
+                <Table sx={{ '& td, & th': { borderColor: 'rgba(100, 116, 139, 0.2)', color: '#e2e8f0', padding: '16px' } }}>
+                  <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Match Date</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Season</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Total Goals</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Actions</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHead>
+                  <TableBody>
+                    {matchDaysForScores.map((md) => (
+                      <TableRow key={md.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
+                        <TableCell>{md.match_date}</TableCell>
+                        <TableCell>{md.season_name}</TableCell>
+                        <TableCell>
+                          <TextField
+                            type="number"
+                            size="small"
+                            value={actualGoalsInputs[md.id] ?? (md.actual_total_goals != null ? String(md.actual_total_goals) : '')}
+                            onChange={(e) => setActualGoalsInputs((prev) => ({ ...prev, [md.id]: e.target.value }))}
+                            inputProps={{ min: 0 }}
+                            sx={{ width: 100, input: { color: '#fff', fontSize: '0.9rem' } }}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Button
+                              size="small"
+                              onClick={() => handleSaveActualGoals(md.id)}
+                              disabled={savingId === md.id}
+                              sx={{ color: '#16a34a', textTransform: 'none', fontWeight: 600, fontSize: '0.85rem' }}
+                            >
+                              {savingId === md.id ? 'Saving…' : 'Save'}
+                            </Button>
+                            <Button
+                              size="small"
+                              startIcon={computingId === md.id ? <CircularProgress size={14} sx={{ color: '#f59e0b' }} /> : <SportsScoreIcon />}
+                              onClick={() => handleComputeFromGames(md.id)}
+                              disabled={computingId === md.id}
+                              sx={{ color: '#f59e0b', textTransform: 'none', fontWeight: 600, fontSize: '0.85rem' }}
+                            >
+                              Compute
+                            </Button>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
             )}
-            <Typography sx={{ color: '#999', fontSize: '0.8rem', mb: 1 }}>
-              Requires SUPABASE_SERVICE_ROLE_KEY in .env.local (Supabase → Project Settings → API → service_role).
-            </Typography>
-            <Button
-              variant="contained"
-              startIcon={isCalculatingPoints ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : <CalculateIcon />}
-              disabled={isCalculatingPoints}
-              onClick={async () => {
-                setIsCalculatingPoints(true);
-                try {
-                  const token = await getSession();
-                  if (!token) {
-                    toast.error('Please sign in again');
-                    return;
-                  }
-                  const res = await fetch('/api/admin/calculate-points', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({}),
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  if (res.ok) {
-                    toast.success(`Points calculated: ${data.predictionsUpdated} predictions updated across ${data.matchDaysProcessed} match day(s).`);
-                  } else {
-                    toast.error(data.error || 'Failed to calculate points');
-                  }
-                } catch (e) {
-                  toast.error('Failed to calculate points');
-                } finally {
-                  setIsCalculatingPoints(false);
-                }
-              }}
-              sx={{
-                backgroundColor: '#16a34a',
-                color: '#fff',
-                fontWeight: 700,
-                '&:hover': { backgroundColor: '#137f2d' },
-              }}
-            >
-              {isCalculatingPoints ? 'Calculating…' : 'Calculate points for all match days'}
-            </Button>
-          </Box>
-        </TabPanel>
 
-        <TabPanel value={tabValue} index={4}>
-          <Box>
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Prize competitions
-            </Typography>
-            <Typography sx={{ color: '#999', mb: 2 }}>
-              After each week/month/season ends, suggest the top-ranked user as winner, confirm and enter prize description. Mark as awarded once the prize is sent. No automated payouts — you contact winners by email.
-            </Typography>
-
-            <Stack spacing={2} sx={{ mb: 4, p: 2, backgroundColor: 'rgba(22, 163, 74, 0.08)', borderRadius: 1, border: '1px solid rgba(22, 163, 74, 0.25)' }}>
-              <Typography sx={{ color: '#16a34a', fontWeight: 600 }}>Create new prize</Typography>
-              <Stack direction="row" flexWrap="wrap" spacing={2} alignItems="center">
-                <TextField
-                  size="small"
-                  select
-                  label="Type"
-                  value={prizeForm.type}
-                  onChange={(e) => {
-                    setSuggestNoPredictionsMessage(null);
-                    setPrizeForm((p) => ({ ...p, type: e.target.value as 'weekly' | 'monthly' | 'seasonal' }));
-                  }}
-                  SelectProps={{ native: true }}
-                  sx={{ minWidth: 120, input: { color: '#fff' }, label: { color: '#999' } }}
-                >
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="seasonal">Seasonal</option>
-                </TextField>
-                <TextField
-                  size="small"
-                  label={prizeForm.type === 'seasonal' ? 'Period (season UUID)' : prizeForm.type === 'monthly' ? 'Period (e.g. 2026-02)' : 'Period (e.g. 2026-W08)'}
-                  value={prizeForm.period}
-                  onChange={(e) => {
-                    setSuggestNoPredictionsMessage(null);
-                    setPrizeForm((p) => ({ ...p, period: e.target.value }));
-                  }}
-                  placeholder={prizeForm.type === 'seasonal' ? 'Season ID' : prizeForm.type === 'monthly' ? 'YYYY-MM' : 'YYYY-Wnn'}
-                  sx={{ minWidth: 180, input: { color: '#fff' }, label: { color: '#999' } }}
-                />
-                <Button
-                  variant="outlined"
-                  size="small"
-                  disabled={suggestingWinner || !prizeForm.period}
-                  onClick={async () => {
-                    setSuggestingWinner(true);
-                    setSuggestNoPredictionsMessage(null);
-                    try {
-                      const token = await getSession();
-                      if (!token) {
-                        toast.error('Please sign in again');
-                        return;
-                      }
-                      const res = await fetch(
-                        `/api/admin/suggested-winner?type=${encodeURIComponent(prizeForm.type)}&period=${encodeURIComponent(prizeForm.period.trim())}`,
-                        { headers: { Authorization: `Bearer ${token}` } }
-                      );
-                      const data = await res.json().catch(() => ({}));
-                      if (res.ok && data.suggested) {
-                        setSuggestNoPredictionsMessage(null);
-                        setPrizeForm((p) => ({
-                          ...p,
-                          winner_user_id: data.suggested.user_id,
-                          suggested_name: `${data.suggested.display_name} (${data.suggested.total_points} pts)`,
-                        }));
-                        toast.success('Top ranked user suggested');
-                      } else {
-                        const message = data.message || data.error || 'Could not get suggested winner';
-                        setPrizeForm((p) => ({ ...p, winner_user_id: '', suggested_name: '' }));
-                        setSuggestNoPredictionsMessage(message);
-                        toast.error(message);
-                      }
-                    } finally {
-                      setSuggestingWinner(false);
-                    }
-                  }}
-                  sx={{ borderColor: '#16a34a', color: '#16a34a' }}
-                >
-                  {suggestingWinner ? '…' : 'SUGGEST WINNER'}
-                </Button>
-              </Stack>
-              {prizeForm.suggested_name && (
-                <Typography sx={{ color: '#fff', fontSize: '0.9rem' }}>
-                  Suggested winner: <strong>{prizeForm.suggested_name}</strong>
-                </Typography>
-              )}
-              {suggestNoPredictionsMessage && (
-                <Typography sx={{ color: '#f59e0b', fontSize: '0.9rem' }}>
-                  {suggestNoPredictionsMessage}
-                </Typography>
-              )}
-              <TextField
-                size="small"
-                label="Prize description (e.g. Amazon £20 voucher)"
-                value={prizeForm.prize_description}
-                onChange={(e) => setPrizeForm((p) => ({ ...p, prize_description: e.target.value }))}
-                fullWidth
-                multiline
-                rows={2}
-                sx={{ input: { color: '#fff' }, label: { color: '#999' }, textarea: { color: '#fff' } }}
-              />
+            {/* Calculate Points Button */}
+            <Box sx={{ p: 3, backgroundColor: 'rgba(22, 163, 74, 0.1)', border: '1px solid rgba(22, 163, 74, 0.3)', borderRadius: 2 }}>
+              <Typography sx={{ color: '#e2e8f0', fontWeight: 600, mb: 2 }}>
+                Calculate Points
+              </Typography>
+              <Typography sx={{ color: '#64748b', fontSize: '0.9rem', mb: 2 }}>
+                Run the points calculation for all match days with final scores set.
+              </Typography>
               <Button
                 variant="contained"
-                disabled={!prizeForm.winner_user_id || creatingPrize}
+                startIcon={isCalculatingPoints ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : <CalculateIcon />}
+                disabled={isCalculatingPoints}
                 onClick={async () => {
-                  setCreatingPrize(true);
+                  setIsCalculatingPoints(true);
                   try {
                     const token = await getSession();
                     if (!token) {
                       toast.error('Please sign in again');
                       return;
                     }
-                    const res = await fetch('/api/admin/prizes', {
+                    const res = await fetch('/api/admin/calculate-points', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({
-                        type: prizeForm.type,
-                        period: prizeForm.period,
-                        winner_user_id: prizeForm.winner_user_id,
-                        prize_description: prizeForm.prize_description || null,
-                      }),
+                      body: JSON.stringify({}),
                     });
                     const data = await res.json().catch(() => ({}));
                     if (res.ok) {
-                      toast.success('Prize created');
-                      setPrizeForm({ type: 'weekly', period: '', winner_user_id: '', suggested_name: '', prize_description: '' });
-                      fetchPrizesList();
+                      toast.success(`Points calculated: ${data.predictionsUpdated} predictions updated across ${data.matchDaysProcessed} match day(s).`);
                     } else {
-                      toast.error(data.error || 'Failed to create prize');
+                      toast.error(data.error || 'Failed to calculate points');
                     }
+                  } catch (e) {
+                    toast.error('Failed to calculate points');
                   } finally {
-                    setCreatingPrize(false);
+                    setIsCalculatingPoints(false);
                   }
                 }}
-                sx={{ backgroundColor: '#16a34a', color: '#fff', alignSelf: 'flex-start' }}
+                sx={{
+                  backgroundColor: '#16a34a',
+                  color: '#fff',
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  '&:hover': { backgroundColor: '#15803d' },
+                }}
               >
-                {creatingPrize ? 'Creating…' : 'Create prize'}
+                {isCalculatingPoints ? 'Calculating…' : 'Calculate Points for All Match Days'}
               </Button>
-            </Stack>
+            </Box>
+          </Box>
+        </TabPanel>
 
-            <Typography sx={{ color: '#999', mb: 1 }}>All prizes</Typography>
-            {prizesLoading ? (
-              <CircularProgress sx={{ color: '#16a34a', mb: 2 }} />
-            ) : prizesList.length > 0 ? (
-              <TableContainer component={Box} sx={{ mb: 2 }}>
-                <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(255,255,255,0.1)', color: '#fff' } }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Type</TableCell>
-                      <TableCell>Period</TableCell>
-                      <TableCell>Winner</TableCell>
-                      <TableCell>Prize description</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell align="right">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {prizesList.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell>{p.type}</TableCell>
-                        <TableCell>{p.period}</TableCell>
-                        <TableCell>{winnerNames[p.winner_user_id] ?? p.winner_user_id.slice(0, 8) + '…'}</TableCell>
-                        <TableCell sx={{ maxWidth: 200 }}>{p.prize_description || '—'}</TableCell>
-                        <TableCell>
-                          {p.status === 'awarded' ? (
-                            <Chip size="small" icon={<CheckCircleIcon />} label="Awarded" sx={{ backgroundColor: '#16a34a', color: '#fff' }} />
-                          ) : (
-                            <Chip size="small" label="Pending" sx={{ backgroundColor: '#666', color: '#fff' }} />
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          {p.status === 'pending' && (
-                            <Button
-                              size="small"
-                              disabled={awardingId === p.id}
-                              onClick={async () => {
-                                setAwardingId(p.id);
-                                try {
-                                  const token = await getSession();
-                                  if (!token) {
-                                    toast.error('Please sign in again');
-                                    return;
-                                  }
-                                  const res = await fetch(`/api/admin/prizes/${p.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                    body: JSON.stringify({ status: 'awarded' }),
-                                  });
-                                  const data = await res.json().catch(() => ({}));
-                                  if (res.ok) {
-                                    toast.success('Marked as awarded');
-                                    fetchPrizesList();
-                                  } else {
-                                    toast.error(data.error || 'Failed');
-                                  }
-                                } finally {
-                                  setAwardingId(null);
-                                }
-                              }}
-                              sx={{ color: '#16a34a' }}
-                            >
-                              {awardingId === p.id ? '…' : 'Mark as awarded'}
-                            </Button>
-                          )}
-                        </TableCell>
+        <TabPanel value={tabValue} index={4}>
+          <Box>
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
+                Prize Competitions
+              </Typography>
+              <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>
+                Create, manage, and award prizes for weekly, monthly, and seasonal competitions.
+              </Typography>
+            </Box>
+
+            {/* Create Prize Form */}
+            <Box sx={{ p: 3, backgroundColor: 'rgba(22, 163, 74, 0.1)', border: '1px solid rgba(22, 163, 74, 0.3)', borderRadius: 2, mb: 4 }}>
+              <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <EmojiEventsIcon sx={{ color: '#f59e0b' }} />
+                New Prize Competition
+              </Typography>
+              <Stack spacing={2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'flex-end' }}>
+                  <TextField
+                    size="small"
+                    select
+                    label="Type"
+                    value={prizeForm.type}
+                    onChange={(e) => {
+                      setSuggestNoPredictionsMessage(null);
+                      setPrizeForm((p) => ({ ...p, type: e.target.value as 'weekly' | 'monthly' | 'seasonal' }));
+                    }}
+                    SelectProps={{ native: true }}
+                    sx={{ minWidth: 140, input: { color: '#fff' }, label: { color: '#94a3b8' }, "& .MuiNativeSelect-select": { color: '#fff' } }}
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="seasonal">Seasonal</option>
+                  </TextField>
+                  <TextField
+                    size="small"
+                    label={prizeForm.type === 'seasonal' ? 'Period (Season UUID)' : prizeForm.type === 'monthly' ? 'Period (YYYY-MM)' : 'Period (YYYY-Wnn)'}
+                    value={prizeForm.period}
+                    onChange={(e) => {
+                      setSuggestNoPredictionsMessage(null);
+                      setPrizeForm((p) => ({ ...p, period: e.target.value }));
+                    }}
+                    sx={{ minWidth: 200, input: { color: '#fff' }, label: { color: '#94a3b8' } }}
+                  />
+                  <Button
+                    variant="outlined"
+                    disabled={suggestingWinner || !prizeForm.period}
+                    onClick={async () => {
+                      setSuggestingWinner(true);
+                      setSuggestNoPredictionsMessage(null);
+                      try {
+                        const token = await getSession();
+                        if (!token) {
+                          toast.error('Please sign in again');
+                          return;
+                        }
+                        const res = await fetch(
+                          `/api/admin/suggested-winner?type=${encodeURIComponent(prizeForm.type)}&period=${encodeURIComponent(prizeForm.period.trim())}`,
+                          { headers: { Authorization: `Bearer ${token}` } }
+                        );
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok && data.suggested) {
+                          setSuggestNoPredictionsMessage(null);
+                          setPrizeForm((p) => ({
+                            ...p,
+                            winner_user_id: data.suggested.user_id,
+                            suggested_name: `${data.suggested.display_name} (${data.suggested.total_points} pts)`,
+                          }));
+                          toast.success('Top-ranked user suggested');
+                        } else {
+                          const message = data.message || data.error || 'Could not get suggested winner';
+                          setPrizeForm((p) => ({ ...p, winner_user_id: '', suggested_name: '' }));
+                          setSuggestNoPredictionsMessage(message);
+                          toast.error(message);
+                        }
+                      } finally {
+                        setSuggestingWinner(false);
+                      }
+                    }}
+                    sx={{ borderColor: '#16a34a', color: '#16a34a', textTransform: 'none', fontWeight: 600 }}
+                  >
+                    {suggestingWinner ? 'Loading…' : 'Suggest Winner'}
+                  </Button>
+                </Stack>
+                {prizeForm.suggested_name && (
+                  <Box sx={{ p: 2, backgroundColor: 'rgba(22, 163, 74, 0.2)', borderRadius: 1, border: '1px solid rgba(22, 163, 74, 0.4)' }}>
+                    <Typography sx={{ color: '#16a34a', fontWeight: 600, fontSize: '0.95rem' }}>
+                      ✓ Suggested: {prizeForm.suggested_name}
+                    </Typography>
+                  </Box>
+                )}
+                {suggestNoPredictionsMessage && (
+                  <Typography sx={{ color: '#f97316', fontSize: '0.9rem' }}>
+                    ⚠ {suggestNoPredictionsMessage}
+                  </Typography>
+                )}
+                <TextField
+                  size="small"
+                  label="Prize Description"
+                  placeholder="e.g. Amazon £20 gift card"
+                  value={prizeForm.prize_description}
+                  onChange={(e) => setPrizeForm((p) => ({ ...p, prize_description: e.target.value }))}
+                  fullWidth
+                  multiline
+                  rows={2}
+                  sx={{ input: { color: '#fff' }, label: { color: '#94a3b8' }, '& .MuiOutlinedInput-root textarea': { color: '#fff' } }}
+                />
+                <Button
+                  variant="contained"
+                  disabled={!prizeForm.winner_user_id || creatingPrize}
+                  onClick={async () => {
+                    setCreatingPrize(true);
+                    try {
+                      const token = await getSession();
+                      if (!token) {
+                        toast.error('Please sign in again');
+                        return;
+                      }
+                      const res = await fetch('/api/admin/prizes', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({
+                          type: prizeForm.type,
+                          period: prizeForm.period,
+                          winner_user_id: prizeForm.winner_user_id,
+                          prize_description: prizeForm.prize_description || null,
+                        }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok) {
+                        toast.success('Prize created successfully');
+                        setPrizeForm({ type: 'weekly', period: '', winner_user_id: '', suggested_name: '', prize_description: '' });
+                        fetchPrizesList();
+                      } else {
+                        toast.error(data.error || 'Failed to create prize');
+                      }
+                    } finally {
+                      setCreatingPrize(false);
+                    }
+                  }}
+                  sx={{ 
+                    backgroundColor: '#16a34a', 
+                    color: '#fff', 
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: '#15803d' },
+                  }}
+                >
+                  {creatingPrize ? 'Creating…' : 'Create Prize'}
+                </Button>
+              </Stack>
+            </Box>
+
+            {/* Prizes List */}
+            <Box>
+              <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 2 }}>All Prize Competitions</Typography>
+              {prizesLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress sx={{ color: '#16a34a' }} />
+                </Box>
+              ) : prizesList.length === 0 ? (
+                <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
+                  <Typography sx={{ color: '#64748b' }}>No prizes yet. Create one above to get started.</Typography>
+                </Box>
+              ) : (
+                <TableContainer component={Box} sx={{ backgroundColor: 'rgba(100, 116, 139, 0.05)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)' }}>
+                  <Table sx={{ '& td, & th': { borderColor: 'rgba(100, 116, 139, 0.2)', color: '#e2e8f0', padding: '14px' } }}>
+                    <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Type</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Period</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Winner</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Prize</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Status</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Actions</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            ) : (
-              <Typography sx={{ color: '#999' }}>No prizes yet. Create one above using Suggest winner for a period.</Typography>
-            )}
+                    </TableHead>
+                    <TableBody>
+                      {prizesList.map((p) => (
+                        <TableRow key={p.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
+                          <TableCell>
+                            <Chip 
+                              label={p.type.charAt(0).toUpperCase() + p.type.slice(1)} 
+                              size="small"
+                              sx={{ backgroundColor: 'rgba(100, 116, 139, 0.3)', color: '#cbd5e1' }}
+                            />
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 500 }}>{p.period}</TableCell>
+                          <TableCell>{winnerNames[p.winner_user_id] ?? p.winner_user_id.slice(0, 8) + '…'}</TableCell>
+                          <TableCell sx={{ maxWidth: 200, fontSize: '0.9rem' }}>{p.prize_description || '—'}</TableCell>
+                          <TableCell>
+                            {p.status === 'awarded' ? (
+                              <Chip size="small" icon={<CheckCircleIcon />} label="Awarded" sx={{ backgroundColor: 'rgba(22, 163, 74, 0.25)', color: '#16a34a', fontWeight: 600 }} />
+                            ) : (
+                              <Chip size="small" label="Pending" sx={{ backgroundColor: 'rgba(249, 115, 22, 0.25)', color: '#f97316', fontWeight: 600 }} />
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            {p.status === 'pending' && (
+                              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                <Button
+                                  size="small"
+                                  disabled={awardingId === p.id}
+                                  onClick={async () => {
+                                    setAwardingId(p.id);
+                                    try {
+                                      const token = await getSession();
+                                      if (!token) {
+                                        toast.error('Please sign in again');
+                                        return;
+                                      }
+                                      const res = await fetch(`/api/admin/prizes/${p.id}`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                        body: JSON.stringify({ status: 'awarded' }),
+                                      });
+                                      const data = await res.json().catch(() => ({}));
+                                      if (res.ok) {
+                                        toast.success('Marked as awarded');
+                                        fetchPrizesList();
+                                      } else {
+                                        toast.error(data.error || 'Failed');
+                                      }
+                                    } finally {
+                                      setAwardingId(null);
+                                    }
+                                  }}
+                                  sx={{ color: '#16a34a', textTransform: 'none', fontWeight: 600 }}
+                                >
+                                  {awardingId === p.id ? '…' : 'Award'}
+                                </Button>
+                                <Tooltip title="Delete this prize entry">
+                                  <Button
+                                    size="small"
+                                    sx={{ color: '#f87171', textTransform: 'none', fontWeight: 600 }}
+                                    onClick={async () => {
+                                      if (!window.confirm('Delete this prize entry?')) return;
+                                      try {
+                                        const token = await getSession();
+                                        if (!token) {
+                                          toast.error('Please sign in again');
+                                          return;
+                                        }
+                                        const res = await fetch(`/api/admin/prizes/${p.id}`, {
+                                          method: 'DELETE',
+                                          headers: { Authorization: `Bearer ${token}` },
+                                        });
+                                        const data = await res.json().catch(() => ({}));
+                                        if (res.ok) {
+                                          toast.success('Prize entry deleted');
+                                          fetchPrizesList();
+                                        } else {
+                                          toast.error(data.error || 'Failed to delete');
+                                        }
+                                      } catch {
+                                        toast.error('Failed to delete prize');
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </Button>
+                                </Tooltip>
+                              </Stack>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+            </Box>
           </Box>
         </TabPanel>
 
         <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
-          <DialogTitle sx={{ backgroundColor: '#1a1a1a', color: '#fff' }}>Create New Season</DialogTitle>
-          <DialogContent sx={{ backgroundColor: '#0a0a0a', pt: 2 }}>
-            <Stack spacing={2}>
+          <DialogTitle sx={{ backgroundColor: '#1e293b', color: '#fff', fontWeight: 700 }}>Create New Season</DialogTitle>
+          <DialogContent sx={{ backgroundColor: '#0f172a', pt: 3 }}>
+            <Stack spacing={2.5}>
               <TextField
                 label="Season Name"
                 value={seasonForm.name}
                 onChange={(e) => setSeasonForm({ ...seasonForm, name: e.target.value })}
                 fullWidth
-                sx={{ input: { color: '#fff' }, label: { color: '#999' } }}
+                variant="outlined"
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
               />
               <TextField
                 label="Start Date"
@@ -860,7 +1082,11 @@ export default function AdminPage() {
                 onChange={(e) => setSeasonForm({ ...seasonForm, startDate: e.target.value })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-                sx={{ input: { color: '#fff' } }}
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
               />
               <TextField
                 label="End Date"
@@ -869,18 +1095,89 @@ export default function AdminPage() {
                 onChange={(e) => setSeasonForm({ ...seasonForm, endDate: e.target.value })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-                sx={{ input: { color: '#fff' } }}
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
               />
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Button onClick={() => setOpenDialog(false)} sx={{ color: '#999' }}>
+              <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
+                <Button onClick={() => setOpenDialog(false)} sx={{ color: '#94a3b8' }}>
                   Cancel
                 </Button>
                 <Button
                   onClick={handleCreateSeason}
                   variant="contained"
-                  sx={{ backgroundColor: '#16a34a', color: '#0f0505' }}
+                  sx={{ backgroundColor: '#16a34a', color: '#fff', fontWeight: 700, '&:hover': { backgroundColor: '#15803d' } }}
                 >
-                  Create
+                  Create Season
+                </Button>
+              </Box>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={matchDayDialogOpen} onClose={() => setMatchDayDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ backgroundColor: '#1e293b', color: '#fff', fontWeight: 700 }}>Create New Match Day</DialogTitle>
+          <DialogContent sx={{ backgroundColor: '#0f172a', pt: 3 }}>
+            <Stack spacing={2.5}>
+              <TextField
+                label="Season"
+                select
+                value={matchDayForm.seasonId}
+                onChange={(e) => setMatchDayForm({ ...matchDayForm, seasonId: e.target.value })}
+                fullWidth
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              >
+                {seasons.map((s) => (
+                  <MenuItem key={s.id} value={s.id} sx={{ color: '#0f172a' }}>
+                    {s.name} ({s.start_date} → {s.end_date})
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Match Date"
+                type="date"
+                value={matchDayForm.matchDate}
+                onChange={(e) => setMatchDayForm({ ...matchDayForm, matchDate: e.target.value })}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <TextField
+                label="Cutoff Time"
+                type="datetime-local"
+                value={matchDayForm.cutoffAt}
+                onChange={(e) => setMatchDayForm({ ...matchDayForm, cutoffAt: e.target.value })}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <Typography sx={{ color: '#64748b', fontSize: '0.8rem' }}>
+                Cutoff time should be before the first match starts to prevent predictions after kickoff.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
+                <Button onClick={() => setMatchDayDialogOpen(false)} sx={{ color: '#94a3b8' }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateMatchDay}
+                  variant="contained"
+                  sx={{ backgroundColor: '#16a34a', color: '#fff', fontWeight: 700, '&:hover': { backgroundColor: '#15803d' } }}
+                >
+                  Create Match Day
                 </Button>
               </Box>
             </Stack>

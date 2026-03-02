@@ -152,16 +152,29 @@ function PredictionsContent() {
 
   // ── Fetch profile / paid status ───────────────────────────────────────────
   const fetchProfilePaidStatus = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_type, subscription_status')
-      .eq('id', user.id)
-      .maybeSingle();
-    setIsPaidUser(
-      profile?.account_type === 'paid' || profile?.subscription_status === 'active'
-    );
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('account_type, stripe_subscription_id')
+        .eq('id', user.id)
+        .single();                              // ← use single() not maybeSingle()
+
+      if (error) {
+        console.error('Profile fetch error:', error.message);
+        return;
+      }
+
+      const paid =
+        profile?.account_type === 'paid' ||     // ← primary check
+        Boolean(profile?.stripe_subscription_id); // ← fallback check
+
+      console.log('account_type:', profile?.account_type, '| isPaid:', paid);
+      setIsPaidUser(paid);
+    } catch (err) {
+      console.error('fetchProfilePaidStatus error:', err);
+    }
   }, []);
 
   useEffect(() => {
@@ -540,12 +553,19 @@ function PredictionsContent() {
                         disabled={afterCutoff}
                         showUpgrade={false}
                       />
+                      {/* 
+                        showUpgrade logic:
+                        - Free user + before cutoff  → show "Upgrade to unlock"
+                        - Free user + after cutoff   → show disabled input (no value)
+                        - Paid user + before cutoff  → show active input ✅
+                        - Paid user + after cutoff   → show disabled input with saved value ✅
+                      */}
                       <PredictionRow
                         label="Half-Time Goals"
                         desc="Total combined HT goals across all matches."
                         value={htGoals}
                         onChange={setHtGoals}
-                        disabled={afterCutoff}
+                        disabled={!isPaidUser || afterCutoff}
                         showUpgrade={!isPaidUser && !afterCutoff}
                       />
                       <PredictionRow
@@ -553,7 +573,7 @@ function PredictionsContent() {
                         desc="Total combined FT corners across all matches."
                         value={ftCorners}
                         onChange={setFtCorners}
-                        disabled={afterCutoff}
+                        disabled={!isPaidUser || afterCutoff}
                         showUpgrade={!isPaidUser && !afterCutoff}
                       />
                       <PredictionRow
@@ -561,7 +581,7 @@ function PredictionsContent() {
                         desc="Total combined HT corners across all matches."
                         value={htCorners}
                         onChange={setHtCorners}
-                        disabled={afterCutoff}
+                        disabled={!isPaidUser || afterCutoff}
                         showUpgrade={!isPaidUser && !afterCutoff}
                       />
                     </Stack>

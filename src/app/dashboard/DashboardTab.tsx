@@ -251,7 +251,6 @@ export default function DashboardTab() {
   const totalPredictions = featuredGames.length;
 
   const formatTime = (dateString: string | null | undefined) => {
-    console.log('dateString', dateString);
     if (!dateString) return '16:00';
     return dateString.replace(/.*T(\d\d:\d\d).*/, '$1')
   };

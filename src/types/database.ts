@@ -8,6 +8,8 @@ export interface Profile {
   subscription_status: 'inactive' | 'active' | 'cancelled';
   /** Set by Stripe webhooks: 'paid' = full access, 'free' = core only */
   account_type: 'free' | 'paid';
+  /** User role: 1 = admin, 0 = regular user */
+  role: 0 | 1;
   created_at: string;
 }
 
@@ -67,6 +69,9 @@ export interface Prediction {
   user_id: string;
   match_day_id: string;
   predicted_total_goals: number;
+  predicted_half_time_goals?: number | null;
+  predicted_ft_corners?: number | null;
+  predicted_ht_corners?: number | null;
   points: number | null;
   created_at: string;
 }

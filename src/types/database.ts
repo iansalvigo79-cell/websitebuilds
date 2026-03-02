@@ -67,6 +67,9 @@ export interface Prediction {
   user_id: string;
   match_day_id: string;
   predicted_total_goals: number;
+  predicted_half_time_goals?: number | null;
+  predicted_ft_corners?: number | null;
+  predicted_ht_corners?: number | null;
   points: number | null;
   created_at: string;
 }

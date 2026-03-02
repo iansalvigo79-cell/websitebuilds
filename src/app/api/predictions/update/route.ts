@@ -4,7 +4,7 @@ import { isMatchDayLocked } from '@/lib/predictionRules';
 
 /**
  * POST /api/predictions/update
- * Body: { matchDayId: string, predicted_total_goals: number }
+ * Body: { matchDayId: string, predicted_total_goals: number, predicted_half_time_goals?: number, predicted_ft_corners?: number, predicted_ht_corners?: number }
  * Server-side: ensures user is authenticated, match day is not locked, then upserts prediction.
  */
 export async function POST(request: NextRequest) {
@@ -29,14 +29,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { matchDayId?: string; predicted_total_goals?: number };
+  let body: { 
+    matchDayId?: string
+    predicted_total_goals?: number
+    predicted_half_time_goals?: number | null
+    predicted_ft_corners?: number | null
+    predicted_ht_corners?: number | null
+  };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { matchDayId, predicted_total_goals } = body;
+  const { matchDayId, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners } = body;
   if (!matchDayId || typeof predicted_total_goals !== 'number' || predicted_total_goals < 0) {
     return NextResponse.json(
       { error: 'matchDayId and a non-negative predicted_total_goals are required' },
@@ -78,6 +84,9 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         match_day_id: matchDayId,
         predicted_total_goals,
+        predicted_half_time_goals: predicted_half_time_goals ?? null,
+        predicted_ft_corners: predicted_ft_corners ?? null,
+        predicted_ht_corners: predicted_ht_corners ?? null,
       },
       { onConflict: 'user_id,match_day_id' }
     );

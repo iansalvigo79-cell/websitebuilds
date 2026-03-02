@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -42,7 +42,7 @@ export default function AdminPage() {
   const [computingId, setComputingId] = useState<string | null>(null);
   const [seasons, setSeasons] = useState<{ id: string; name: string; start_date: string; end_date: string; is_active: boolean }[]>([]);
   const [seasonsLoading, setSeasonsLoading] = useState(false);
-  const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_name?: string }[]>([]);
+  const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_id?: string; season_name?: string }[]>([]);
   const [matchDaysLoading, setMatchDaysLoading] = useState(false);
   const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; home_team_name: string; away_team_name: string; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
@@ -60,6 +60,12 @@ export default function AdminPage() {
   const [creatingPrize, setCreatingPrize] = useState(false);
   const [awardingId, setAwardingId] = useState<string | null>(null);
   const [winnerNames, setWinnerNames] = useState<Record<string, string>>({});
+  const [matchDayDialogOpen, setMatchDayDialogOpen] = useState(false);
+  const [matchDayForm, setMatchDayForm] = useState<{ seasonId: string; matchDate: string; cutoffAt: string }>({
+    seasonId: '',
+    matchDate: '',
+    cutoffAt: '',
+  });
 
   useEffect(() => {
     const checkAdminAuth = async () => {
@@ -154,6 +160,7 @@ export default function AdminPage() {
           id: md.id,
           match_date: md.match_date,
           cutoff_at: md.cutoff_at,
+          season_id: md.season_id,
           season_name: md.seasons?.name ?? '—',
         })));
       }
@@ -249,7 +256,7 @@ export default function AdminPage() {
   }, [getSession]);
 
   useEffect(() => {
-    if (tabValue === 0) fetchSeasons();
+    if (tabValue === 0 || tabValue === 1) fetchSeasons();
   }, [tabValue, fetchSeasons]);
   useEffect(() => {
     if (tabValue === 1) fetchMatchDaysList();
@@ -345,6 +352,32 @@ export default function AdminPage() {
       fetchSeasons();
     } catch (err) {
       console.error('Unexpected Error (admin createSeason):', err);
+      toast.error('An error occurred');
+    }
+  };
+
+  const handleCreateMatchDay = async () => {
+    if (!matchDayForm.seasonId || !matchDayForm.matchDate || !matchDayForm.cutoffAt) {
+      toast.error('Please select a season, match date and cutoff time');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('match_days').insert({
+        season_id: matchDayForm.seasonId,
+        match_date: matchDayForm.matchDate,
+        cutoff_at: matchDayForm.cutoffAt,
+        is_open: true,
+      });
+      if (error) {
+        toast.error('Error creating match day: ' + error.message);
+        return;
+      }
+      toast.success('Match day created');
+      setMatchDayForm({ seasonId: '', matchDate: '', cutoffAt: '' });
+      setMatchDayDialogOpen(false);
+      fetchMatchDaysList();
+    } catch (err) {
+      console.error('Unexpected Error (admin createMatchDay):', err);
       toast.error('An error occurred');
     }
   };
@@ -448,10 +481,27 @@ export default function AdminPage() {
 
         <TabPanel value={tabValue} index={1}>
           <Box>
-            <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 2 }}>
-              Match Days
-            </Typography>
-            <Typography sx={{ color: '#999', mb: 2 }}>Match days and cutoff times for predictions.</Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+              <Box>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700 }}>
+                  Match Days
+                </Typography>
+                <Typography sx={{ color: '#999', mt: 0.5 }}>Configure match days and cutoff times for predictions.</Typography>
+              </Box>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setMatchDayDialogOpen(true)}
+                sx={{
+                  backgroundColor: '#16a34a',
+                  color: '#0f0505',
+                  fontWeight: 700,
+                  '&:hover': { backgroundColor: '#137f2d' },
+                }}
+              >
+                New Match Day
+              </Button>
+            </Box>
             {matchDaysLoading ? (
               <CircularProgress sx={{ color: '#16a34a' }} />
             ) : (
@@ -462,6 +512,7 @@ export default function AdminPage() {
                       <TableCell>Match date</TableCell>
                       <TableCell>Season</TableCell>
                       <TableCell>Cutoff</TableCell>
+                      <TableCell align="right">Status</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -470,6 +521,26 @@ export default function AdminPage() {
                         <TableCell>{md.match_date}</TableCell>
                         <TableCell>{md.season_name}</TableCell>
                         <TableCell>{md.cutoff_at ? new Date(md.cutoff_at).toLocaleString() : '—'}</TableCell>
+                        <TableCell align="right">
+                          {md.cutoff_at ? (
+                            <Chip
+                              size="small"
+                              label={new Date(md.cutoff_at).getTime() > Date.now() ? 'Open' : 'Past cutoff'}
+                              sx={{
+                                backgroundColor:
+                                  new Date(md.cutoff_at).getTime() > Date.now()
+                                    ? 'rgba(22,163,74,0.25)'
+                                    : 'rgba(148,163,184,0.35)',
+                                color:
+                                  new Date(md.cutoff_at).getTime() > Date.now()
+                                    ? '#16a34a'
+                                    : '#e5e7eb',
+                              }}
+                            />
+                          ) : (
+                            <Chip size="small" label="No cutoff" sx={{ backgroundColor: '#4b5563', color: '#e5e7eb' }} />
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -798,37 +869,70 @@ export default function AdminPage() {
                         </TableCell>
                         <TableCell align="right">
                           {p.status === 'pending' && (
-                            <Button
-                              size="small"
-                              disabled={awardingId === p.id}
-                              onClick={async () => {
-                                setAwardingId(p.id);
-                                try {
-                                  const token = await getSession();
-                                  if (!token) {
-                                    toast.error('Please sign in again');
-                                    return;
+                            <Stack direction="row" spacing={1} justifyContent="flex-end">
+                              <Button
+                                size="small"
+                                disabled={awardingId === p.id}
+                                onClick={async () => {
+                                  setAwardingId(p.id);
+                                  try {
+                                    const token = await getSession();
+                                    if (!token) {
+                                      toast.error('Please sign in again');
+                                      return;
+                                    }
+                                    const res = await fetch(`/api/admin/prizes/${p.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                      body: JSON.stringify({ status: 'awarded' }),
+                                    });
+                                    const data = await res.json().catch(() => ({}));
+                                    if (res.ok) {
+                                      toast.success('Marked as awarded');
+                                      fetchPrizesList();
+                                    } else {
+                                      toast.error(data.error || 'Failed');
+                                    }
+                                  } finally {
+                                    setAwardingId(null);
                                   }
-                                  const res = await fetch(`/api/admin/prizes/${p.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                    body: JSON.stringify({ status: 'awarded' }),
-                                  });
-                                  const data = await res.json().catch(() => ({}));
-                                  if (res.ok) {
-                                    toast.success('Marked as awarded');
-                                    fetchPrizesList();
-                                  } else {
-                                    toast.error(data.error || 'Failed');
-                                  }
-                                } finally {
-                                  setAwardingId(null);
-                                }
-                              }}
-                              sx={{ color: '#16a34a' }}
-                            >
-                              {awardingId === p.id ? '…' : 'Mark as awarded'}
-                            </Button>
+                                }}
+                                sx={{ color: '#16a34a' }}
+                              >
+                                {awardingId === p.id ? '…' : 'Mark as awarded'}
+                              </Button>
+                              <Tooltip title="Cancel this prize record (it will be removed).">
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  onClick={async () => {
+                                    if (!window.confirm('Cancel this prize? This will remove it from the list.')) return;
+                                    try {
+                                      const token = await getSession();
+                                      if (!token) {
+                                        toast.error('Please sign in again');
+                                        return;
+                                      }
+                                      const res = await fetch(`/api/admin/prizes/${p.id}`, {
+                                        method: 'DELETE',
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      });
+                                      const data = await res.json().catch(() => ({}));
+                                      if (res.ok) {
+                                        toast.success('Prize cancelled');
+                                        fetchPrizesList();
+                                      } else {
+                                        toast.error(data.error || 'Failed to cancel prize');
+                                      }
+                                    } catch {
+                                      toast.error('Failed to cancel prize');
+                                    }
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </Tooltip>
+                            </Stack>
                           )}
                         </TableCell>
                       </TableRow>
@@ -879,6 +983,61 @@ export default function AdminPage() {
                   onClick={handleCreateSeason}
                   variant="contained"
                   sx={{ backgroundColor: '#16a34a', color: '#0f0505' }}
+                >
+                  Create
+                </Button>
+              </Box>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={matchDayDialogOpen} onClose={() => setMatchDayDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ backgroundColor: '#1a1a1a', color: '#fff' }}>Create New Match Day</DialogTitle>
+          <DialogContent sx={{ backgroundColor: '#0a0a0a', pt: 2 }}>
+            <Stack spacing={2}>
+              <TextField
+                label="Season"
+                select
+                value={matchDayForm.seasonId}
+                onChange={(e) => setMatchDayForm({ ...matchDayForm, seasonId: e.target.value })}
+                fullWidth
+                sx={{ '& .MuiInputBase-input': { color: '#fff' }, '& .MuiInputLabel-root': { color: '#999' } }}
+              >
+                {seasons.map((s) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.name} ({s.start_date} → {s.end_date})
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Match Date"
+                type="date"
+                value={matchDayForm.matchDate}
+                onChange={(e) => setMatchDayForm({ ...matchDayForm, matchDate: e.target.value })}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                sx={{ input: { color: '#fff' }, label: { color: '#999' } }}
+              />
+              <TextField
+                label="Cutoff time"
+                type="datetime-local"
+                value={matchDayForm.cutoffAt}
+                onChange={(e) => setMatchDayForm({ ...matchDayForm, cutoffAt: e.target.value })}
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                sx={{ input: { color: '#fff' }, label: { color: '#999' } }}
+              />
+              <Typography sx={{ color: '#777', fontSize: '0.8rem' }}>
+                Cutoff should be before the first kickoff so players cannot submit predictions once matches are underway.
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Button onClick={() => setMatchDayDialogOpen(false)} sx={{ color: '#999' }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateMatchDay}
+                  variant="contained"
+                  sx={{ backgroundColor: '#16a34a', color: '#0f0505', fontWeight: 700 }}
                 >
                   Create
                 </Button>

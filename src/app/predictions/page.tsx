@@ -14,7 +14,7 @@ import {
   Grid,
   CircularProgress,
 } from '@mui/material';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
@@ -36,6 +36,7 @@ interface MatchDayWithMeta extends MatchDay {
   matchDayLabel: string;
   games: GameRow[];
 }
+
 function formatTime(dateString: string | null | undefined) {
   if (!dateString) return '--:--';
   return dateString.replace(/.*T(\d\d:\d\d).*/, '$1');
@@ -50,10 +51,7 @@ function formatCutoff(cutoffString: string | null | undefined) {
 function formatLongDate(dateString: string | null | undefined) {
   if (!dateString) return '';
   return new Date(dateString).toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   });
 }
 
@@ -63,12 +61,7 @@ function formatShortDate(dateString: string | null | undefined) {
 }
 
 function PredictionRow({
-  label,
-  desc,
-  value,
-  onChange,
-  disabled,
-  showUpgrade,
+  label, desc, value, onChange, disabled, showUpgrade,
 }: {
   label: string;
   desc: string;
@@ -88,10 +81,7 @@ function PredictionRow({
           </Box>
         </Box>
         {showUpgrade ? (
-          <Link
-            href="/paywall"
-            style={{ color: '#16a34a', fontSize: '0.9rem', fontWeight: 600 }}
-          >
+          <Link href="/paywall" style={{ color: '#16a34a', fontSize: '0.9rem', fontWeight: 600 }}>
             Upgrade to unlock
           </Link>
         ) : (
@@ -117,22 +107,77 @@ function PredictionRow({
   );
 }
 
-export default function PredictionsPage() {
-  const router = useRouter();
+// ── Isolated component for useSearchParams ────────────────────────────────────
+// MUST be its own component wrapped directly in <Suspense>
+function SearchParamsHandler({
+  onMatchDayId,
+  onSubscriptionSuccess,
+  onProfileRefetch,
+}: {
+  onMatchDayId: (id: string | null) => void;
+  onSubscriptionSuccess: () => void;
+  onProfileRefetch: () => void;
+}) {
   const searchParams = useSearchParams();
-  const matchDayIdFromUrl = searchParams.get('matchDayId');
 
-  const [activeTab, setActiveTab] = useState<'open' | 'history'>('open');
-  const [matchDays, setMatchDays] = useState<MatchDayWithMeta[]>([]);
-  const [selectedMatchDay, setSelectedMatchDay] = useState<MatchDayWithMeta | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [ftGoals, setFtGoals] = useState<string>('');
-  const [htGoals, setHtGoals] = useState<string>('');
-  const [ftCorners, setFtCorners] = useState<string>('');
-  const [htCorners, setHtCorners] = useState<string>('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [isPaidUser, setIsPaidUser] = useState(false);
+  useEffect(() => {
+    // Pass matchDayId up to parent
+    onMatchDayId(searchParams.get('matchDayId'));
 
+    // Refetch profile if returning from successful payment
+    if (searchParams.get('subscription') === 'success') {
+      onSubscriptionSuccess();
+      onProfileRefetch();
+    }
+  }, [searchParams, onMatchDayId, onSubscriptionSuccess, onProfileRefetch]);
+
+  return null;
+}
+
+// ── Main predictions content ──────────────────────────────────────────────────
+function PredictionsContent() {
+  const router = useRouter();
+
+  const [matchDayIdFromUrl, setMatchDayIdFromUrl] = useState<string | null>(null);
+  const [activeTab, setActiveTab]                 = useState<'open' | 'history'>('open');
+  const [matchDays, setMatchDays]                 = useState<MatchDayWithMeta[]>([]);
+  const [selectedMatchDay, setSelectedMatchDay]   = useState<MatchDayWithMeta | null>(null);
+  const [isLoading, setIsLoading]                 = useState(true);
+  const [ftGoals, setFtGoals]                     = useState<string>('');
+  const [htGoals, setHtGoals]                     = useState<string>('');
+  const [ftCorners, setFtCorners]                 = useState<string>('');
+  const [htCorners, setHtCorners]                 = useState<string>('');
+  const [isSaving, setIsSaving]                   = useState(false);
+  const [isPaidUser, setIsPaidUser]               = useState(false);
+
+  // ── Fetch profile / paid status ───────────────────────────────────────────
+  const fetchProfilePaidStatus = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('account_type, subscription_status')
+      .eq('id', user.id)
+      .maybeSingle();
+    setIsPaidUser(
+      profile?.account_type === 'paid' || profile?.subscription_status === 'active'
+    );
+  }, []);
+
+  useEffect(() => {
+    fetchProfilePaidStatus();
+  }, [fetchProfilePaidStatus]);
+
+  // Refetch profile when tab becomes visible (e.g. returning from Stripe)
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchProfilePaidStatus();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [fetchProfilePaidStatus]);
+
+  // ── Fetch match days ──────────────────────────────────────────────────────
   const fetchMatchDays = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -153,7 +198,9 @@ export default function PredictionsPage() {
         .select('id, name')
         .in('id', leagueIds);
 
-      const leaguesMap = new Map((leaguesData || []).map((l: { id: string; name: string }) => [l.id, l.name]));
+      const leaguesMap = new Map(
+        (leaguesData || []).map((l: { id: string; name: string }) => [l.id, l.name])
+      );
 
       const allMatchDays: MatchDayWithMeta[] = [];
       const now = new Date();
@@ -171,9 +218,9 @@ export default function PredictionsPage() {
 
         if (mdError || !mdList?.length) continue;
 
-        const leagueName = leaguesMap.get(season.league_id) || 'League';
-        const seasonName = season.name || '';
-        const matchDayNum = seasonName.replace(/\D/g, '') || mdList.length;
+        const leagueName   = leaguesMap.get(season.league_id) || 'League';
+        const seasonName   = season.name || '';
+        const matchDayNum  = seasonName.replace(/\D/g, '') || mdList.length;
 
         for (const md of mdList) {
           const gamesResult = await supabase
@@ -207,10 +254,10 @@ export default function PredictionsPage() {
               away_team?: string;
             };
             return {
-              id: row.id as string,
+              id:             row.id as string,
               home_team_name: row.home_team_rel?.name ?? (row.home_team as string) ?? 'TBD',
               away_team_name: row.away_team_rel?.name ?? (row.away_team as string) ?? 'TBD',
-              kickoff_at: (row.kickoff_at as string) || '',
+              kickoff_at:     (row.kickoff_at as string) || '',
             };
           });
 
@@ -223,7 +270,9 @@ export default function PredictionsPage() {
         }
       }
 
-      allMatchDays.sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime());
+      allMatchDays.sort((a, b) =>
+        new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
+      );
       setMatchDays(allMatchDays);
 
       const toSelect = matchDayIdFromUrl
@@ -243,36 +292,9 @@ export default function PredictionsPage() {
     fetchMatchDays();
   }, [fetchMatchDays]);
 
-  // Profile is updated by /api/stripe/webhook after checkout (paywall → checkout → Stripe → webhook → profiles)
-  const fetchProfilePaidStatus = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_type, subscription_status')
-      .eq('id', user.id)
-      .maybeSingle();
-    setIsPaidUser(profile?.account_type === 'paid' || profile?.subscription_status === 'active');
-  }, []);
-
-  // Load user profile (subscription) on mount and when returning from payment
+  // ── Load existing prediction for selected matchday ────────────────────────
   useEffect(() => {
-    fetchProfilePaidStatus();
-  }, [fetchProfilePaidStatus]);
-
-  // Refetch profile when page becomes visible (e.g. after returning from Stripe/paywall) or when subscription=success
-  useEffect(() => {
-    if (searchParams.get('subscription') === 'success') fetchProfilePaidStatus();
-    const onVisibility = () => { if (document.visibilityState === 'visible') fetchProfilePaidStatus(); };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [searchParams, fetchProfilePaidStatus]);
-
-  useEffect(() => {
-    if (!selectedMatchDay) {
-      setFtGoals('');
-      return;
-    }
+    if (!selectedMatchDay) { setFtGoals(''); return; }
     let cancelled = false;
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -292,30 +314,20 @@ export default function PredictionsPage() {
     return () => { cancelled = true; };
   }, [selectedMatchDay?.id]);
 
-  const afterCutoff = selectedMatchDay
-    ? isAfterCutoff(selectedMatchDay.cutoff_at, selectedMatchDay.games)
-    : false;
+  const afterCutoff    = selectedMatchDay ? isAfterCutoff(selectedMatchDay.cutoff_at, selectedMatchDay.games) : false;
   const lockedByKickoff = selectedMatchDay ? isMatchDayLocked(selectedMatchDay.games) : false;
 
+  // ── Save prediction ───────────────────────────────────────────────────────
   const handleUpdatePrediction = async () => {
     if (!selectedMatchDay) return;
-    if (afterCutoff) {
-      toast.error('Predictions are locked after the cutoff time.');
-      return;
-    }
-    const locked = lockedByKickoff;
-    if (locked) {
-      toast.error('Predictions are locked after the first match kicks off.');
-      return;
-    }
+    if (afterCutoff) { toast.error('Predictions are locked after the cutoff time.'); return; }
+    if (lockedByKickoff) { toast.error('Predictions are locked after the first match kicks off.'); return; }
+
     setIsSaving(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        router.push('/signin');
-        setIsSaving(false);
-        return;
-      }
+      if (!session?.access_token) { router.push('/signin'); setIsSaving(false); return; }
+
       const value = parseInt(ftGoals, 10);
       if (Number.isNaN(value) || value < 0) {
         toast.error('Enter a valid number for Full-Time Goals');
@@ -333,7 +345,7 @@ export default function PredictionsPage() {
       } else {
         toast.success('Prediction updated');
       }
-    } catch (err) {
+    } catch {
       toast.error('Failed to save prediction');
     } finally {
       setIsSaving(false);
@@ -342,7 +354,18 @@ export default function PredictionsPage() {
 
   return (
     <Box sx={{ backgroundColor: '#24262F', minHeight: '100vh', py: 4 }}>
+
+      {/* ── useSearchParams isolated here in its own Suspense ── */}
+      <Suspense fallback={null}>
+        <SearchParamsHandler
+          onMatchDayId={setMatchDayIdFromUrl}
+          onSubscriptionSuccess={() => {}}
+          onProfileRefetch={fetchProfilePaidStatus}
+        />
+      </Suspense>
+
       <Box sx={{ maxWidth: 1200, mx: 'auto', px: 2 }}>
+
         {/* Go back */}
         <Button
           startIcon={<ArrowBackIcon />}
@@ -351,6 +374,7 @@ export default function PredictionsPage() {
         >
           Go back
         </Button>
+
         {/* Header */}
         <Typography variant="h4" sx={{ fontWeight: 800, color: '#fff', mb: 0.5 }}>
           Predictions
@@ -375,10 +399,11 @@ export default function PredictionsPage() {
             '& .Mui-selected': { color: '#16a34a' },
           }}
         >
-          <Tab value="open" label="Open Predictions" />
+          <Tab value="open"    label="Open Predictions" />
           <Tab value="history" label="History" />
         </Tabs>
 
+        {/* History tab */}
         {activeTab === 'history' ? (
           <Card sx={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 2 }}>
             <CardContent>
@@ -389,6 +414,7 @@ export default function PredictionsPage() {
           </Card>
         ) : (
           <Grid container spacing={3}>
+
             {/* Left: Match day list */}
             <Grid item xs={12} md={4}>
               <Typography sx={{ color: '#999', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
@@ -407,14 +433,10 @@ export default function PredictionsPage() {
                         key={md.id}
                         onClick={() => setSelectedMatchDay(md)}
                         sx={{
-                          p: 1.5,
-                          borderRadius: 1,
-                          cursor: 'pointer',
-                          backgroundColor: isSelected ? 'rgba(22, 163, 74, 0.2)' : 'transparent',
-                          border: isSelected ? '1px solid rgba(22, 163, 74, 0.5)' : '1px solid transparent',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
+                          p: 1.5, borderRadius: 1, cursor: 'pointer',
+                          backgroundColor: isSelected ? 'rgba(22,163,74,0.2)' : 'transparent',
+                          border: isSelected ? '1px solid rgba(22,163,74,0.5)' : '1px solid transparent',
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           '&:hover': { backgroundColor: 'rgba(255,255,255,0.05)' },
                         }}
                       >
@@ -441,6 +463,7 @@ export default function PredictionsPage() {
             <Grid item xs={12} md={8}>
               {selectedMatchDay && (
                 <Stack spacing={3}>
+
                   {/* Match day header */}
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                     <Box>
@@ -460,18 +483,17 @@ export default function PredictionsPage() {
                       sx={{
                         backgroundColor:
                           getMatchDayStatus(selectedMatchDay, selectedMatchDay.games) === 'completed'
-                            ? 'rgba(107, 114, 128, 0.3)'
+                            ? 'rgba(107,114,128,0.3)'
                             : getMatchDayStatus(selectedMatchDay, selectedMatchDay.games) === 'live'
-                              ? 'rgba(234, 179, 8, 0.25)'
-                              : 'rgba(22, 163, 74, 0.25)',
+                              ? 'rgba(234,179,8,0.25)'
+                              : 'rgba(22,163,74,0.25)',
                         color:
                           getMatchDayStatus(selectedMatchDay, selectedMatchDay.games) === 'completed'
                             ? '#9ca3af'
                             : getMatchDayStatus(selectedMatchDay, selectedMatchDay.games) === 'live'
                               ? '#eab308'
                               : '#16a34a',
-                        fontWeight: 600,
-                        textTransform: 'capitalize',
+                        fontWeight: 600, textTransform: 'capitalize',
                       }}
                     />
                   </Box>
@@ -486,12 +508,8 @@ export default function PredictionsPage() {
                         <Box
                           key={g.id}
                           sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            py: 1,
-                            px: 1.5,
-                            borderRadius: 1,
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            py: 1, px: 1.5, borderRadius: 1,
                             backgroundColor: 'rgba(255,255,255,0.03)',
                           }}
                         >
@@ -508,13 +526,12 @@ export default function PredictionsPage() {
                     </Stack>
                   </Box>
 
-                  {/* Your predictions */}
+                  {/* Prediction inputs */}
                   <Box>
                     <Typography sx={{ color: '#999', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
                       Your Predictions
                     </Typography>
                     <Stack spacing={2}>
-                      {/* Full-Time Goals: always show input; disabled after cutoff */}
                       <PredictionRow
                         label="Full-Time Goals"
                         desc="Total combined FT goals across all matches."
@@ -523,7 +540,6 @@ export default function PredictionsPage() {
                         disabled={afterCutoff}
                         showUpgrade={false}
                       />
-                      {/* Half-Time Goals: paid before cutoff = input; free = Upgrade to unlock; after cutoff = disabled input */}
                       <PredictionRow
                         label="Half-Time Goals"
                         desc="Total combined HT goals across all matches."
@@ -551,6 +567,7 @@ export default function PredictionsPage() {
                     </Stack>
                   </Box>
 
+                  {/* Save button */}
                   <Button
                     variant="contained"
                     fullWidth
@@ -568,12 +585,29 @@ export default function PredictionsPage() {
                 </Stack>
               )}
               {!selectedMatchDay && !isLoading && (
-                <Typography sx={{ color: '#999', py: 4 }}>Select a match day to make predictions.</Typography>
+                <Typography sx={{ color: '#999', py: 4 }}>
+                  Select a match day to make predictions.
+                </Typography>
               )}
             </Grid>
           </Grid>
         )}
       </Box>
     </Box>
+  );
+}
+
+// ── Page export ───────────────────────────────────────────────────────────────
+export default function PredictionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#24262F' }}>
+          <CircularProgress sx={{ color: '#16a34a' }} />
+        </Box>
+      }
+    >
+      <PredictionsContent />
+    </Suspense>
   );
 }

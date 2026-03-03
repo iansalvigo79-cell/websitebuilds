@@ -46,7 +46,7 @@ export interface MatchDayOption {
 }
 
 // ── Helper: resolve display name with fallback chain ─────────────────────────
-// Never returns 'Unknown' — always falls back to email prefix or 'Player'
+// Never returns 'Unknown' — falls back to email prefix or 'Player'
 function resolveDisplayName(display_name: string | null | undefined, email: string | null | undefined): string {
   if (display_name && display_name.trim() !== '') return display_name.trim();
   if (email && email.trim() !== '') return email.split('@')[0];
@@ -147,13 +147,14 @@ export default function LeaderboardTab() {
 
       const userIds = [...new Set(predictionsRows.map((p: any) => p.user_id).filter(Boolean))];
 
-      // ── FIX 1: fetch email too so we can use it as fallback ──────────────
-      const { data: profileList, error: profileError } = userIds.length
+      // fetch email so we can fall back when display_name is blank
+      const profileResult = userIds.length
         ? await supabase.from('profiles').select('id, display_name, email').in('id', userIds)
-        : { data: [] as { id: string; display_name: string | null; email: string | null }[], error: null };
-      // if (profileError) console.error('Leaderboard profiles fetch error:', profileError);
+        : { data: [] as { id: string; display_name: string | null; email: string | null }[] };
+      const profileList = profileResult.data;
+      if ((profileResult as any).error) console.error('Leaderboard profiles fetch error:', (profileResult as any).error);
 
-      // ── FIX 2: store both display_name and email in profileMap ───────────
+      // store both display_name and email in profileMap
       const profileMap = new Map(
         (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, email: p.email }])
       );
@@ -179,7 +180,6 @@ export default function LeaderboardTab() {
         const userId = pred.user_id;
         const pointsVal = pred.points != null ? pred.points : 0;
         if (!grouped[userId]) {
-          // ── FIX 3: use resolveDisplayName instead of 'Unknown' ───────────
           const profileData = profileMap.get(userId);
           grouped[userId] = {
             display_name: resolveDisplayName(profileData?.display_name, profileData?.email),
@@ -339,12 +339,12 @@ export default function LeaderboardTab() {
 
         const userIds = [...new Set((preds as any[]).map((p) => p.user_id))];
 
-        // ── FIX 4: fetch email too for matchday leaderboard ──────────────
-        const { data: profileList } = userIds.length
+        // fetch email for matchday leaderboard
+        const profileResult = userIds.length
           ? await supabase.from('profiles').select('id, display_name, email').in('id', userIds)
-          : { data: [] };
-
-        // ── FIX 5: store both fields in profileMap ───────────────────────
+          : { data: [] as { id: string; display_name: string | null; email: string | null }[] };
+        const profileList = profileResult.data;
+        // store both fields in profileMap
         const profileMap = new Map(
           (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, email: p.email }])
         );

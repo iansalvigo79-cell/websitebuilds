@@ -43,6 +43,36 @@ export async function computeMatchDayActualFromGames(matchDayId: string): Promis
   return { ok: true, total };
 }
 
+/**
+ * Save individual game scores for a match day and update actual_total_goals.
+ */
+export async function saveMatchDayScores(
+  matchDayId: string,
+  games: { id: string; home_goals: number | null; away_goals: number | null }[]
+): Promise<SetActualGoalsResult & { total?: number }> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) return { ok: false, error: 'Server misconfiguration' };
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  // update each game row
+  for (const g of games) {
+    const update: any = {};
+    if (typeof g.home_goals === 'number') update.home_goals = g.home_goals;
+    if (typeof g.away_goals === 'number') update.away_goals = g.away_goals;
+    const { error } = await supabase.from('games').update(update).eq('id', g.id);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  const total = games.reduce((sum, g) => sum + (g.home_goals || 0) + (g.away_goals || 0), 0);
+  const { error: updateErr } = await supabase
+    .from('match_days')
+    .update({ actual_total_goals: total })
+    .eq('id', matchDayId);
+  if (updateErr) return { ok: false, error: updateErr.message };
+  return { ok: true, total };
+}
+
 export type MarkWinnerResult = { ok: true } | { ok: false; error: string };
 
 /** Mark a user as winner for a period. Requires prize_winners table (user_id, period_type, period_key). */

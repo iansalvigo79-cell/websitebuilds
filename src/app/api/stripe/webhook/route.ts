@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
   // Service role key bypasses RLS — required to update any user's profile
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  console.log('Coming in Stripe Webhook.........');
+
   // ── Verify signature ──────────────────────────────────────────────────────
   const rawBody   = await request.text();
   const signature = request.headers.get('stripe-signature') || '';
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
       // ── PAYMENT SUCCESSFUL ───────────────────────────────────────────────
       case 'checkout.session.completed': {
         let session = event.data.object as Stripe.Checkout.Session;
+        console.log('session:', session)
 
         // Extract userId — checked in order of reliability
         let userId: string | null =

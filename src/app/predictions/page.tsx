@@ -22,6 +22,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { MatchDay } from '@/types/database';
 import { isMatchDayLocked, isAfterCutoff, getMatchDayStatus } from '@/lib/predictionRules';
+import { formatUKTime } from '@/lib/timezoneUtils';
 import Link from 'next/link';
 
 interface GameRow {
@@ -44,8 +45,7 @@ function formatTime(dateString: string | null | undefined) {
 
 function formatCutoff(cutoffString: string | null | undefined) {
   if (!cutoffString) return '';
-  const d = new Date(cutoffString);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatUKTime(cutoffString);
 }
 
 function formatLongDate(dateString: string | null | undefined) {

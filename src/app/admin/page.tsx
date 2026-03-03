@@ -44,8 +44,13 @@ export default function AdminPage() {
   const [seasonsLoading, setSeasonsLoading] = useState(false);
   const [matchDaysList, setMatchDaysList] = useState<{ id: string; match_date: string; cutoff_at: string; season_id?: string; season_name?: string }[]>([]);
   const [matchDaysLoading, setMatchDaysLoading] = useState(false);
-  const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; home_team_name: string; away_team_name: string; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
+  const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; match_day_date?: string; home_team_name: string; away_team_name: string; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
+  // creation helpers for games tab
+  const [availableMatchDays, setAvailableMatchDays] = useState<{ id: string; match_date: string; season_name: string }[]>([]);
+  const [teamsList, setTeamsList] = useState<{ id: string; name: string }[]>([]);
+  const [createGameForm, setCreateGameForm] = useState({ matchDayId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
+  const [creatingGame, setCreatingGame] = useState(false);
   const [prizesList, setPrizesList] = useState<Prize[]>([]);
   const [prizesLoading, setPrizesLoading] = useState(false);
   const [prizeForm, setPrizeForm] = useState({
@@ -193,7 +198,8 @@ export default function AdminPage() {
           home_goals,
           away_goals,
           home_team_rel:teams!games_home_team_fkey(name),
-          away_team_rel:teams!games_away_team_fkey(name)
+          away_team_rel:teams!games_away_team_fkey(name),
+          match_days(match_date)
         `)
         .order('kickoff_at', { ascending: false })
         .limit(200);
@@ -230,6 +236,37 @@ export default function AdminPage() {
       }
     } finally {
       setGamesLoading(false);
+    }
+  }, []);
+
+  const fetchMatchDaysForGames = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('match_days')
+      .select('id, match_date, season_id, seasons(name)')
+      .eq('is_open', true)
+      .order('match_date', { ascending: true });
+    if (error) {
+      toast.error(error.message);
+      setAvailableMatchDays([]);
+    } else {
+      setAvailableMatchDays((data || []).map((md: any) => ({
+        id: md.id,
+        match_date: md.match_date,
+        season_name: md.seasons?.name ?? '—',
+      })));
+    }
+  }, []);
+
+  const fetchTeamsList = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('teams')
+      .select('id, name')
+      .order('name', { ascending: true });
+    if (error) {
+      toast.error(error.message);
+      setTeamsList([]);
+    } else {
+      setTeamsList(data || []);
     }
   }, []);
 
@@ -274,8 +311,12 @@ export default function AdminPage() {
     if (tabValue === 1) fetchMatchDaysList();
   }, [tabValue, fetchMatchDaysList]);
   useEffect(() => {
-    if (tabValue === 2) fetchGamesList();
-  }, [tabValue, fetchGamesList]);
+    if (tabValue === 2) {
+      fetchGamesList();
+      fetchMatchDaysForGames();
+      fetchTeamsList();
+    }
+  }, [tabValue, fetchGamesList, fetchMatchDaysForGames, fetchTeamsList]);
   useEffect(() => {
     if (tabValue === 4) fetchPrizesList();
   }, [tabValue, fetchPrizesList]);
@@ -617,6 +658,185 @@ export default function AdminPage() {
               </Typography>
               <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>View all games assigned to match days.</Typography>
             </Box>
+
+            {/* create game form */}
+            <Box sx={{ 
+              mb: 6, 
+              p: 4, 
+              background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
+              borderRadius: 3, 
+              border: '1px solid rgba(139, 92, 246, 0.3)',
+              boxShadow: '0 8px 24px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
+              {/* Accent line */}
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, #8b5cf6, #06b6d4, #10b981)' }} />
+              <Typography sx={{ color: '#e0e7ff', fontWeight: 800, mb: 2, fontSize: '1.2rem', letterSpacing: '0.5px' }}>✨ Create New Game</Typography>
+              <Typography sx={{ color: '#a78bfa', fontSize: '0.85rem', mb: 3 }}>Add a new match to the schedule</Typography>
+              <Stack spacing={2.5}>
+                <TextField
+                  label="Match Day"
+                  select
+                  value={createGameForm.matchDayId}
+                  onChange={(e) => setCreateGameForm({ ...createGameForm, matchDayId: e.target.value })}
+                  fullWidth
+                  sx={{
+                    '& .MuiInputBase-root': { 
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                      color: '#e2e8f0', 
+                      borderRadius: 2, 
+                      border: '1.5px solid rgba(139, 92, 246, 0.4)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
+                      '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                    '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
+                    '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                  }}
+                >
+                  {availableMatchDays.map((md) => (
+                    <MenuItem key={md.id} value={md.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
+                      {md.season_name} — {md.match_date}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Home Team"
+                  select
+                  value={createGameForm.homeTeamId}
+                  onChange={(e) => setCreateGameForm({ ...createGameForm, homeTeamId: e.target.value })}
+                  fullWidth
+                  sx={{
+                    '& .MuiInputBase-root': { 
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                      color: '#e2e8f0', 
+                      borderRadius: 2, 
+                      border: '1.5px solid rgba(139, 92, 246, 0.4)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
+                      '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                    '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
+                    '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                  }}
+                >
+                  {teamsList.map((t) => (
+                    <MenuItem key={t.id} value={t.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
+                      {t.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Away Team"
+                  select
+                  value={createGameForm.awayTeamId}
+                  onChange={(e) => setCreateGameForm({ ...createGameForm, awayTeamId: e.target.value })}
+                  fullWidth
+                  disabled={!createGameForm.homeTeamId}
+                  sx={{
+                    '& .MuiInputBase-root': { 
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                      color: '#e2e8f0', 
+                      borderRadius: 2, 
+                      border: '1.5px solid rgba(139, 92, 246, 0.4)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
+                      '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                    '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
+                    '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                  }}
+                >
+                  {teamsList
+                    .filter((t) => t.id !== createGameForm.homeTeamId)
+                    .map((t) => (
+                      <MenuItem key={t.id} value={t.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
+                        {t.name}
+                      </MenuItem>
+                    ))}
+                </TextField>
+                <TextField
+                  label="Kickoff Time"
+                  type="datetime-local"
+                  value={createGameForm.kickoffAt}
+                  onChange={(e) => setCreateGameForm({ ...createGameForm, kickoffAt: e.target.value })}
+                  fullWidth
+                  InputLabelProps={{ shrink: true }}
+                  sx={{
+                    '& .MuiInputBase-root': { 
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                      color: '#e2e8f0', 
+                      borderRadius: 2, 
+                      border: '1.5px solid rgba(139, 92, 246, 0.4)',
+                      transition: 'all 0.2s ease',
+                      '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
+                      '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                    '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
+                    '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                  }}
+                />
+                <Button
+                  variant="contained"
+                  disabled={creatingGame}
+                  onClick={async () => {
+                    if (!createGameForm.matchDayId || !createGameForm.homeTeamId || !createGameForm.awayTeamId || !createGameForm.kickoffAt) {
+                      toast.error('Please fill out all fields');
+                      return;
+                    }
+                    if (createGameForm.homeTeamId === createGameForm.awayTeamId) {
+                      toast.error('Home and away team must be different');
+                      return;
+                    }
+                    setCreatingGame(true);
+                    try {
+                      const kickoffUTC = new Date(createGameForm.kickoffAt).toISOString();
+                      const { error } = await supabase.from('games').insert({
+                        match_day_id: createGameForm.matchDayId,
+                        home_team: createGameForm.homeTeamId,
+                        away_team: createGameForm.awayTeamId,
+                        kickoff_at: kickoffUTC,
+                      });
+                      if (error) {
+                        toast.error('Error creating game: ' + error.message);
+                      } else {
+                        toast.success('Game created successfully');
+                        setCreateGameForm({ matchDayId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
+                        fetchGamesList();
+                      }
+                    } catch (err) {
+                      console.error('Unexpected error creating game', err);
+                      toast.error('An error occurred');
+                    } finally {
+                      setCreatingGame(false);
+                    }
+                  }}
+                  sx={{
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    fontSize: '1rem',
+                    py: 1.5,
+                    borderRadius: 2,
+                    boxShadow: '0 6px 20px rgba(139, 92, 246, 0.4)',
+                    transition: 'all 0.3s ease',
+                    '&:hover': { 
+                      boxShadow: '0 8px 28px rgba(139, 92, 246, 0.6)',
+                      transform: 'translateY(-2px)'
+                    },
+                    '&:disabled': { opacity: 0.6, transform: 'none' }
+                  }}
+                >
+                  {creatingGame ? '⏳ Creating…' : '🎮 Create Game'}
+                </Button>
+              </Stack>
+            </Box>
             {gamesLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                 <CircularProgress sx={{ color: '#16a34a' }} />
@@ -795,12 +1015,23 @@ export default function AdminPage() {
             </Box>
 
             {/* Create Prize Form */}
-            <Box sx={{ p: 3, backgroundColor: 'rgba(22, 163, 74, 0.1)', border: '1px solid rgba(22, 163, 74, 0.3)', borderRadius: 2, mb: 4 }}>
-              <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 3, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <EmojiEventsIcon sx={{ color: '#f59e0b' }} />
+            <Box sx={{ 
+              p: 4, 
+              background: 'linear-gradient(135deg, rgba(13, 110, 107, 0.15) 0%, rgba(15, 118, 110, 0.15) 100%)',
+              border: '1.5px solid rgba(6, 182, 212, 0.3)',
+              borderRadius: 3, 
+              mb: 4,
+              boxShadow: '0 8px 24px rgba(6, 182, 212, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
+              {/* Accent line */}
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, #06b6d4, #10b981, #f59e0b)' }} />
+              <Typography sx={{ color: '#e0f2fe', fontWeight: 800, mb: 3, display: 'flex', alignItems: 'center', gap: 1.5, fontSize: '1.2rem', letterSpacing: '0.5px' }}>
+                <EmojiEventsIcon sx={{ color: '#f59e0b', fontSize: '1.6rem' }} />
                 New Prize Competition
               </Typography>
-              <Stack spacing={2}>
+              <Stack spacing={2.5}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'flex-end' }}>
                   <TextField
                     size="small"
@@ -812,11 +1043,11 @@ export default function AdminPage() {
                       setPrizeForm((p) => ({ ...p, type: e.target.value as 'weekly' | 'monthly' | 'seasonal' }));
                     }}
                     SelectProps={{ native: true }}
-                    sx={{ minWidth: 140, input: { color: '#fff' }, label: { color: '#94a3b8' }, "& .MuiNativeSelect-select": { color: '#fff' } }}
+                    sx={{ minWidth: 140, input: { color: '#fff' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiNativeSelect-select': { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, '& .MuiNativeSelect-select:focus': { backgroundColor: 'rgba(6, 182, 212, 0.2)' } }}
                   >
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="seasonal">Seasonal</option>
+                    <option value="weekly" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Weekly</option>
+                    <option value="monthly" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Monthly</option>
+                    <option value="seasonal" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Seasonal</option>
                   </TextField>
                   <TextField
                     size="small"
@@ -826,7 +1057,7 @@ export default function AdminPage() {
                       setSuggestNoPredictionsMessage(null);
                       setPrizeForm((p) => ({ ...p, period: e.target.value }));
                     }}
-                    sx={{ minWidth: 200, input: { color: '#fff' }, label: { color: '#94a3b8' } }}
+                    sx={{ minWidth: 200, input: { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' }, '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' } }}
                   />
                   <Button
                     variant="outlined"
@@ -863,20 +1094,20 @@ export default function AdminPage() {
                         setSuggestingWinner(false);
                       }
                     }}
-                    sx={{ borderColor: '#16a34a', color: '#16a34a', textTransform: 'none', fontWeight: 600 }}
+                    sx={{ borderColor: '#06b6d4', color: '#06b6d4', textTransform: 'none', fontWeight: 700, '&:hover': { backgroundColor: 'rgba(6, 182, 212, 0.15)', borderColor: '#06b6d4' } }}
                   >
-                    {suggestingWinner ? 'Loading…' : 'Suggest Winner'}
+                    {suggestingWinner ? '⏳ Loading…' : '✨ Suggest Winner'}
                   </Button>
                 </Stack>
                 {prizeForm.suggested_name && (
-                  <Box sx={{ p: 2, backgroundColor: 'rgba(22, 163, 74, 0.2)', borderRadius: 1, border: '1px solid rgba(22, 163, 74, 0.4)' }}>
-                    <Typography sx={{ color: '#16a34a', fontWeight: 600, fontSize: '0.95rem' }}>
+                  <Box sx={{ p: 2.5, backgroundColor: 'rgba(6, 182, 212, 0.15)', borderRadius: 2, border: '1px solid rgba(6, 182, 212, 0.4)' }}>
+                    <Typography sx={{ color: '#06b6d4', fontWeight: 700, fontSize: '0.95rem' }}>
                       ✓ Suggested: {prizeForm.suggested_name}
                     </Typography>
                   </Box>
                 )}
                 {suggestNoPredictionsMessage && (
-                  <Typography sx={{ color: '#f97316', fontSize: '0.9rem' }}>
+                  <Typography sx={{ color: '#f97316', fontSize: '0.9rem', fontWeight: 600 }}>
                     ⚠ {suggestNoPredictionsMessage}
                   </Typography>
                 )}
@@ -889,7 +1120,7 @@ export default function AdminPage() {
                   fullWidth
                   multiline
                   rows={2}
-                  sx={{ input: { color: '#fff' }, label: { color: '#94a3b8' }, '& .MuiOutlinedInput-root textarea': { color: '#fff' } }}
+                  sx={{ input: { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiOutlinedInput-root textarea': { color: '#fff' }, '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' }, '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' } }}
                 />
                 <Button
                   variant="contained"
@@ -925,14 +1156,23 @@ export default function AdminPage() {
                     }
                   }}
                   sx={{ 
-                    backgroundColor: '#16a34a', 
+                    background: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)',
                     color: '#fff', 
                     fontWeight: 700,
                     textTransform: 'none',
-                    '&:hover': { backgroundColor: '#15803d' },
+                    fontSize: '1rem',
+                    py: 1.5,
+                    borderRadius: 2,
+                    boxShadow: '0 6px 20px rgba(6, 182, 212, 0.4)',
+                    transition: 'all 0.3s ease',
+                    '&:hover': { 
+                      boxShadow: '0 8px 28px rgba(6, 182, 212, 0.6)',
+                      transform: 'translateY(-2px)'
+                    },
+                    '&:disabled': { opacity: 0.6, transform: 'none' }
                   }}
                 >
-                  {creatingPrize ? 'Creating…' : 'Create Prize'}
+                  {creatingPrize ? '⏳ Creating…' : '🏆 Create Prize'}
                 </Button>
               </Stack>
             </Box>

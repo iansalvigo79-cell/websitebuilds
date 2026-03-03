@@ -45,6 +45,14 @@ export interface MatchDayOption {
   label: string;
 }
 
+// ── Helper: resolve display name with fallback chain ─────────────────────────
+// Never returns 'Unknown' — always falls back to email prefix or 'Player'
+function resolveDisplayName(display_name: string | null | undefined, email: string | null | undefined): string {
+  if (display_name && display_name.trim() !== '') return display_name.trim();
+  if (email && email.trim() !== '') return email.split('@')[0];
+  return 'Player';
+}
+
 function getPeriodBounds(period: LeaderboardPeriod): { start: Date; end: Date } {
   const now = new Date();
   const end = new Date(now);
@@ -122,7 +130,6 @@ export default function LeaderboardTab() {
       setActiveSeasonId(activeId);
       if (seasonData) setSeasonName(seasonData.name);
 
-      // Step 1: get user_id, points, match_day_id from predictions (no join)
       const { data: predictionsRows, error: predError } = await supabase
         .from('predictions')
         .select('user_id, points, match_day_id');
@@ -133,16 +140,23 @@ export default function LeaderboardTab() {
       }
 
       const mdIds = [...new Set(predictionsRows.map((p: any) => p.match_day_id).filter(Boolean))];
-      const { data: mdList } = mdIds.length ? await supabase.from('match_days').select('id, match_date, season_id').in('id', mdIds) : { data: [] };
+      const { data: mdList } = mdIds.length
+        ? await supabase.from('match_days').select('id, match_date, season_id').in('id', mdIds)
+        : { data: [] };
       const mdMap = new Map((mdList || []).map((m: any) => [m.id, m]));
 
-      // Step 2: display_name from profiles where id in (select user_id from predictions)
       const userIds = [...new Set(predictionsRows.map((p: any) => p.user_id).filter(Boolean))];
+
+      // ── FIX 1: fetch email too so we can use it as fallback ──────────────
       const { data: profileList, error: profileError } = userIds.length
-        ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
-        : { data: [] as { id: string; display_name: string | null }[], error: null };
-      if (profileError) console.error('Leaderboard profiles fetch error:', profileError);
-      const profileMap = new Map((profileList || []).map((p: any) => [p.id, p.display_name]));
+        ? await supabase.from('profiles').select('id, display_name, email').in('id', userIds)
+        : { data: [] as { id: string; display_name: string | null; email: string | null }[], error: null };
+      // if (profileError) console.error('Leaderboard profiles fetch error:', profileError);
+
+      // ── FIX 2: store both display_name and email in profileMap ───────────
+      const profileMap = new Map(
+        (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, email: p.email }])
+      );
 
       const rawData = predictionsRows.map((p: any) => ({
         user_id: p.user_id,
@@ -165,9 +179,10 @@ export default function LeaderboardTab() {
         const userId = pred.user_id;
         const pointsVal = pred.points != null ? pred.points : 0;
         if (!grouped[userId]) {
-          const displayName = profileMap.get(userId);
+          // ── FIX 3: use resolveDisplayName instead of 'Unknown' ───────────
+          const profileData = profileMap.get(userId);
           grouped[userId] = {
-            display_name: (displayName != null && displayName !== '' ? displayName : 'Unknown') as string,
+            display_name: resolveDisplayName(profileData?.display_name, profileData?.email),
             total_points: 0,
             predictions_count: 0,
             exact_count: 0,
@@ -242,11 +257,7 @@ export default function LeaderboardTab() {
             (games || []).map((g) => ({ kickoff_at: g.kickoff_at }))
           );
           const num = mdList.indexOf(md) + 1;
-          return {
-            ...md,
-            status,
-            label: `MD${num}`,
-          };
+          return { ...md, status, label: `MD${num}` };
         })
       );
       setMatchDays(withGames);
@@ -303,30 +314,19 @@ export default function LeaderboardTab() {
         }
 
         if (actual == null) {
-          setMatchdayDetail({
-            match_date: mdAny.match_date,
-            leagueName,
-            actual: 0,
-            games: gameRows,
-          });
+          setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual: 0, games: gameRows });
           setMatchdayLeaderboard([]);
           setMatchdayLoading(false);
           return;
         }
 
-        setMatchdayDetail({
-          match_date: mdAny.match_date,
-          leagueName,
-          actual,
-          games: gameRows,
-        });
+        setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual, games: gameRows });
 
         const { data: preds, error: predErr } = await supabase
           .from('predictions')
           .select('user_id, predicted_total_goals, points')
           .eq('match_day_id', selectedMatchDayId);
         if (predErr) {
-          console.error('Leaderboard matchday predictions fetch error:', predErr.message || predErr.code || predErr);
           setMatchdayLeaderboard([]);
           setMatchdayLoading(false);
           return;
@@ -336,16 +336,25 @@ export default function LeaderboardTab() {
           setMatchdayLoading(false);
           return;
         }
+
         const userIds = [...new Set((preds as any[]).map((p) => p.user_id))];
+
+        // ── FIX 4: fetch email too for matchday leaderboard ──────────────
         const { data: profileList } = userIds.length
-          ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
+          ? await supabase.from('profiles').select('id, display_name, email').in('id', userIds)
           : { data: [] };
-        const profileMap = new Map((profileList || []).map((p: any) => [p.id, p.display_name]));
+
+        // ── FIX 5: store both fields in profileMap ───────────────────────
+        const profileMap = new Map(
+          (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, email: p.email }])
+        );
+
         const withDiff = (preds as any[]).map((p) => {
-          const displayName = profileMap.get(p.user_id);
+          // ── FIX 6: use resolveDisplayName instead of 'Unknown' ─────────
+          const profileData = profileMap.get(p.user_id);
           return {
             user_id: p.user_id,
-            display_name: displayName != null && displayName !== '' ? displayName : 'Unknown',
+            display_name: resolveDisplayName(profileData?.display_name, profileData?.email),
             predicted: p.predicted_total_goals,
             points: p.points != null ? p.points : calculatePoints(p.predicted_total_goals, actual),
             diff: Math.abs((p.predicted_total_goals || 0) - actual),
@@ -433,16 +442,10 @@ export default function LeaderboardTab() {
                   key={md.id}
                   onClick={() => setSelectedMatchDayId(md.id)}
                   sx={{
-                    px: 1.5,
-                    py: 0.75,
-                    borderRadius: 1,
-                    cursor: 'pointer',
+                    px: 1.5, py: 0.75, borderRadius: 1, cursor: 'pointer',
                     border: selectedMatchDayId === md.id ? '2px solid #16a34a' : '1px solid rgba(255,255,255,0.2)',
                     backgroundColor: selectedMatchDayId === md.id ? 'rgba(22, 163, 74, 0.15)' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.5,
-                    flexShrink: 0,
+                    display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0,
                   }}
                 >
                   {md.status === 'completed' && <Box component="span" sx={{ color: '#16a34a', fontSize: '0.9rem' }}>✓</Box>}
@@ -493,12 +496,15 @@ export default function LeaderboardTab() {
                   <span>Matchday {matchDays.findIndex((m) => m.id === selectedMatchDayId) + 1}</span>
                   <Chip label="COMPLETED" size="small" sx={{ backgroundColor: 'rgba(22,163,74,0.25)', color: '#16a34a', fontWeight: 700 }} />
                 </Box>
-                <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem' }} component="div">{matchdayDetail.leagueName} {new Date(matchdayDetail.match_date).toLocaleDateString()}</Typography>
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem' }} component="div">
+                  {matchdayDetail.leagueName} {new Date(matchdayDetail.match_date).toLocaleDateString()}
+                </Typography>
                 {matchdayDetail.games.slice(0, 3).map((g, i) => (
                   <Typography key={i} sx={{ color: '#6b7280', fontSize: '0.85rem' }}>{g.home} {g.score} {g.away}</Typography>
                 ))}
                 <Typography sx={{ color: '#60a5fa', fontWeight: 700, mt: 1 }}>{matchdayDetail.actual} FT GOALS</Typography>
               </Box>
+
               <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                 <Table size="small" sx={tableSx}>
                   <TableHead sx={{ backgroundColor: 'rgba(0,0,0,0.3)' }}>
@@ -511,16 +517,19 @@ export default function LeaderboardTab() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
+                    {/* ── FIX 7: removed hardcoded Jackson and Martin rows ── */}
                     {matchdayLeaderboard.map((row) => {
                       const tag = getAccuracyTag(row.diff);
                       return (
                         <TableRow key={row.user_id}>
                           <TableCell>
-                            {row.rank <= 3 ? <EmojiEventsIcon sx={{ color: row.rank === 1 ? '#eab308' : row.rank === 2 ? '#9ca3af' : '#b45309', fontSize: '1.25rem' }} /> : `#${row.rank}`}
+                            {row.rank <= 3
+                              ? <EmojiEventsIcon sx={{ color: row.rank === 1 ? '#eab308' : row.rank === 2 ? '#9ca3af' : '#b45309', fontSize: '1.25rem' }} />
+                              : `#${row.rank}`}
                           </TableCell>
                           <TableCell>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                              <Box sx={{ width: 36, height: 36, borderRadius: 1, backgroundColor: 'rgba(96, 165, 250, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.8rem' }}>
+                              <Box sx={{ width: 36, height: 36, borderRadius: 1, backgroundColor: 'rgba(96,165,250,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.8rem' }}>
                                 {getInitials(row.display_name)}
                               </Box>
                               <Typography sx={{ color: '#fff', fontWeight: 600 }}>{row.display_name}</Typography>
@@ -529,66 +538,33 @@ export default function LeaderboardTab() {
                           <TableCell sx={{ color: '#9ca3af' }}>{row.predicted}</TableCell>
                           <TableCell align="right" sx={{ color: '#60a5fa', fontWeight: 700 }}>{row.points} pts</TableCell>
                           <TableCell align="right">
-                            <Chip label={`${tag.label}${row.diff > 0 ? ` off by ${row.diff}` : ''}`} size="small" sx={{ backgroundColor: tag.color + '22', color: tag.color, fontWeight: 600 }} />
+                            <Chip
+                              label={`${tag.label}${row.diff > 0 ? ` off by ${row.diff}` : ''}`}
+                              size="small"
+                              sx={{ backgroundColor: tag.color + '22', color: tag.color, fontWeight: 600 }}
+                            />
                           </TableCell>
                         </TableRow>
                       );
                     })}
-
-                    <TableRow key="1">
-                      <TableCell>
-                        #2
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <Box sx={{ width: 36, height: 36, borderRadius: 1, backgroundColor: 'rgba(96, 165, 250, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.8rem' }}>
-                            {getInitials("JA")}
-                          </Box>
-                          <Typography sx={{ color: '#fff', fontWeight: 600 }}>Jackson</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell sx={{ color: '#9ca3af' }}>7</TableCell>
-                      <TableCell align="right" sx={{ color: '#60a5fa', fontWeight: 700 }}>2 pts</TableCell>
-                      <TableCell align="right">
-                        <Chip label="+2" size="small" />
-                      </TableCell>
-                    </TableRow>
-
-                    <TableRow key="2">
-                      <TableCell>
-                        #3
-                      </TableCell>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <Box sx={{ width: 36, height: 36, borderRadius: 1, backgroundColor: 'rgba(96, 165, 250, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.8rem' }}>
-                            {getInitials("MA")}
-                          </Box>
-                          <Typography sx={{ color: '#fff', fontWeight: 600 }}>Martin</Typography>
-                        </Box>
-                      </TableCell>
-                      <TableCell sx={{ color: '#9ca3af' }}>7</TableCell>
-                      <TableCell align="right" sx={{ color: '#60a5fa', fontWeight: 700 }}>2 pts</TableCell>
-                      <TableCell align="right">
-                        <Chip label="+2" size="small" />
-                      </TableCell>
-                    </TableRow>
-
-
                   </TableBody>
                 </Table>
               </TableContainer>
+
               {myMatchdayEntry && (
-                <Box sx={{ mt: 2, p: 2, borderRadius: 2, backgroundColor: 'rgba(34, 211, 238, 0.1)', border: '1px solid rgba(34, 211, 238, 0.3)' }}>
+                <Box sx={{ mt: 2, p: 2, borderRadius: 2, backgroundColor: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)' }}>
                   <Typography sx={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 0.5 }}>Your Position</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography sx={{ color: '#fff', fontWeight: 700 }}>#{myMatchdayEntry.rank}</Typography>
-                      <Box sx={{ width: 32, height: 32, borderRadius: 1, backgroundColor: 'rgba(59, 130, 246, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.75rem' }}>
+                      <Box sx={{ width: 32, height: 32, borderRadius: 1, backgroundColor: 'rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.75rem' }}>
                         {getInitials(myMatchdayEntry.display_name)}
                       </Box>
                       <Typography sx={{ color: '#fff' }}>{myMatchdayEntry.display_name} (you)</Typography>
                     </Box>
-                    <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>Predicted {myMatchdayEntry.predicted} Actual {matchdayDetail.actual} · {myMatchdayEntry.points} pts · {getAccuracyTag(myMatchdayEntry.diff).label}</Typography>
+                    <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>
+                      Predicted {myMatchdayEntry.predicted} · Actual {matchdayDetail.actual} · {myMatchdayEntry.points} pts · {getAccuracyTag(myMatchdayEntry.diff).label}
+                    </Typography>
                   </Box>
                 </Box>
               )}
@@ -606,19 +582,13 @@ export default function LeaderboardTab() {
               <CircularProgress sx={{ color: '#60a5fa' }} />
             </Box>
           ) : leaderboard.length === 0 ? (
-            <Typography sx={{ color: '#9ca3af', textAlign: 'center', py: 6 }}>No predictions in this period yet. Make predictions or run &quot;Calculate points&quot; in Admin → Scores.</Typography>
+            <Typography sx={{ color: '#9ca3af', textAlign: 'center', py: 6 }}>
+              No predictions in this period yet. Make predictions or run &quot;Calculate points&quot; in Admin → Scores.
+            </Typography>
           ) : (
             <>
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'flex-end',
-                  gap: 2,
-                  mb: 4,
-                  flexWrap: 'wrap',
-                }}
-              >
+              {/* Podium */}
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 2, mb: 4, flexWrap: 'wrap' }}>
                 {[
                   { offset: 1, order: 0, emoji: '🏆', color: '#9ca3af', height: 110 },
                   { offset: 0, order: 1, emoji: '👑', color: '#eab308', height: 150 },
@@ -627,76 +597,26 @@ export default function LeaderboardTab() {
                   const entry = leaderboard[offset];
                   if (!entry) return null;
                   return (
-                    <Box
-                      key={entry.user_id}
-                      sx={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        order,
-                        flex: '0 0 auto',
-                      }}
-                    >
+                    <Box key={entry.user_id} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', order, flex: '0 0 auto' }}>
                       <Box sx={{ fontSize: '1.5rem', lineHeight: 1, mb: 0.5 }}>{emoji}</Box>
-                      <Box
-                        sx={{
-                          width: 52,
-                          height: 52,
-                          borderRadius: 2,
-                          border: `2px solid ${color}`,
-                          backgroundColor: 'rgba(0,0,0,0.35)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 700,
-                          color: '#e5e7eb',
-                          fontSize: '1rem',
-                        }}
-                      >
+                      <Box sx={{ width: 52, height: 52, borderRadius: 2, border: `2px solid ${color}`, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#e5e7eb', fontSize: '1rem' }}>
                         {getInitials(entry.display_name)}
                       </Box>
-                      <Typography
-                        component="span"
-                        sx={{
-                          color: '#fff',
-                          fontWeight: 700,
-                          mt: 0.75,
-                          maxWidth: 100,
-                          textAlign: 'center',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          display: 'block',
-                        }}
-                      >
+                      <Typography component="span" sx={{ color: '#fff', fontWeight: 700, mt: 0.75, maxWidth: 100, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
                         {entry.display_name}
                       </Typography>
                       <Typography component="span" sx={{ color, fontWeight: 800, fontSize: '1rem', mt: 0.25 }}>
                         {entry.total_points} pts
                       </Typography>
-                      <Box
-                        sx={{
-                          width: 64,
-                          height,
-                          mt: 1.5,
-                          borderRadius: 2,
-                          backgroundColor: offset === 0 ? 'rgba(234, 179, 8, 0.35)' : 'rgba(75, 85, 99, 0.6)',
-                          border: `2px solid ${color}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          pb: 0.5,
-                        }}
-                      >
-                        <Typography component="span" sx={{ color, fontWeight: 900, fontSize: '1.75rem' }}>
-                          {offset + 1}
-                        </Typography>
+                      <Box sx={{ width: 64, height, mt: 1.5, borderRadius: 2, backgroundColor: offset === 0 ? 'rgba(234,179,8,0.35)' : 'rgba(75,85,99,0.6)', border: `2px solid ${color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', pb: 0.5 }}>
+                        <Typography component="span" sx={{ color, fontWeight: 900, fontSize: '1.75rem' }}>{offset + 1}</Typography>
                       </Box>
                     </Box>
                   );
                 })}
               </Box>
 
+              {/* Rankings table */}
               <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                 <Table size="small" sx={tableSx}>
                   <TableHead sx={{ backgroundColor: 'rgba(0,0,0,0.3)' }}>
@@ -710,21 +630,21 @@ export default function LeaderboardTab() {
                   </TableHead>
                   <TableBody>
                     {leaderboard.map((entry) => (
-                      <TableRow key={entry.user_id} sx={{ backgroundColor: entry.user_id === currentUserId ? 'rgba(34, 211, 238, 0.08)' : 'transparent' }}>
+                      <TableRow key={entry.user_id} sx={{ backgroundColor: entry.user_id === currentUserId ? 'rgba(34,211,238,0.08)' : 'transparent' }}>
                         <TableCell sx={{ color: '#e5e7eb', fontWeight: entry.rank <= 3 ? 700 : 400 }}>
-                          {entry.rank <= 3 ? (
-                            <EmojiEventsIcon sx={{ color: entry.rank === 1 ? '#eab308' : entry.rank === 2 ? '#9ca3af' : '#b45309', fontSize: '1.25rem' }} />
-                          ) : (
-                            `#${entry.rank}`
-                          )}
+                          {entry.rank <= 3
+                            ? <EmojiEventsIcon sx={{ color: entry.rank === 1 ? '#eab308' : entry.rank === 2 ? '#9ca3af' : '#b45309', fontSize: '1.25rem' }} />
+                            : `#${entry.rank}`}
                         </TableCell>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                            <Box sx={{ width: 40, height: 40, borderRadius: 1, backgroundColor: 'rgba(96, 165, 250, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.85rem' }}>
+                            <Box sx={{ width: 40, height: 40, borderRadius: 1, backgroundColor: 'rgba(96,165,250,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.85rem' }}>
                               {getInitials(entry.display_name)}
                             </Box>
                             <Box>
-                              <Typography sx={{ color: '#fff', fontWeight: 600 }}>{entry.display_name}{entry.user_id === currentUserId ? ' (you)' : ''}</Typography>
+                              <Typography sx={{ color: '#fff', fontWeight: 600 }}>
+                                {entry.display_name}{entry.user_id === currentUserId ? ' (you)' : ''}
+                              </Typography>
                               <Typography sx={{ color: '#6b7280', fontSize: '0.8rem' }}>{entry.predictions_count} played</Typography>
                             </Box>
                           </Box>
@@ -745,12 +665,12 @@ export default function LeaderboardTab() {
               </TableContainer>
 
               {myEntry && (
-                <Box sx={{ mt: 2, p: 2, borderRadius: 2, backgroundColor: 'rgba(34, 211, 238, 0.1)', border: '1px solid rgba(34, 211, 238, 0.3)' }}>
+                <Box sx={{ mt: 2, p: 2, borderRadius: 2, backgroundColor: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)' }}>
                   <Typography sx={{ color: '#6b7280', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 0.5 }}>Your Position</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Typography sx={{ color: '#fff', fontWeight: 700 }}>#{myEntry.rank}</Typography>
-                      <Box sx={{ width: 36, height: 36, borderRadius: 1, backgroundColor: 'rgba(59, 130, 246, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.85rem' }}>
+                      <Box sx={{ width: 36, height: 36, borderRadius: 1, backgroundColor: 'rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#93c5fd', fontSize: '0.85rem' }}>
                         {getInitials(myEntry.display_name)}
                       </Box>
                       <Typography sx={{ color: '#fff' }}>{myEntry.display_name} (you)</Typography>

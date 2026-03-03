@@ -27,29 +27,29 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   console.log('Incoming Stripe webhook...');
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret   = process.env.STRIPE_WEBHOOK_SECRET;
-  const supabaseUrl     = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey      = process.env.SUPABASE_SERVICE_ROLE_KEY; // MUST be service role
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // MUST be service role
 
   // ── Validate env vars ─────────────────────────────────────────────────────
   if (!stripeSecretKey || !webhookSecret || !supabaseUrl || !serviceKey) {
     console.error('❌ Webhook: missing env vars', {
-      hasStripeKey:    !!stripeSecretKey,
+      hasStripeKey: !!stripeSecretKey,
       hasWebhookSecret: !!webhookSecret,
-      hasSupabaseUrl:  !!supabaseUrl,
-      hasServiceKey:   !!serviceKey,
+      hasSupabaseUrl: !!supabaseUrl,
+      hasServiceKey: !!serviceKey,
     });
     return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
   }
 
-  const stripe   = new Stripe(stripeSecretKey, { apiVersion: '2026-01-28.clover' });
+  const stripe = new Stripe(stripeSecretKey, { apiVersion: '2026-01-28.clover' });
   // Service role key bypasses RLS — required to update any user's profile
   const supabase = createClient(supabaseUrl, serviceKey);
 
   console.log('Coming in Stripe Webhook.........');
 
   // ── Verify signature ──────────────────────────────────────────────────────
-  const rawBody   = await request.text();
+  const rawBody = await request.text();
   const signature = request.headers.get('stripe-signature') || '';
 
   let event: Stripe.Event;
@@ -131,10 +131,10 @@ export async function POST(request: NextRequest) {
         const { data, error: updateError } = await supabase
           .from('profiles')
           .update({
-            account_type:           'paid',          // ← unlocks all 4 prediction games
-            stripe_customer_id:     customerId,       // ← e.g. cus_xxx
+            account_type: 'paid',          // ← unlocks all 4 prediction games
+            stripe_customer_id: customerId,       // ← e.g. cus_xxx
             stripe_subscription_id: subscriptionId,  // ← e.g. sub_xxx
-            subscription_status:    'active',         // ← bonus: tracks status
+            subscription_status: 'active',         // ← bonus: tracks status
           })
           .eq('id', userId)
           .select('id, account_type, stripe_customer_id, stripe_subscription_id');
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
 
       // ── SUBSCRIPTION CANCELLED OR EXPIRED ────────────────────────────────
       case 'customer.subscription.deleted': {
-        const sub            = event.data.object as Stripe.Subscription;
+        const sub = event.data.object as Stripe.Subscription;
         const subscriptionId = sub.id;
 
         console.log('🔴 Subscription deleted:', subscriptionId);
@@ -169,8 +169,8 @@ export async function POST(request: NextRequest) {
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
-            account_type:           'free',   // ← revoke paid access
-            subscription_status:    'cancelled',
+            account_type: 'free',   // ← revoke paid access
+            subscription_status: 'cancelled',
             stripe_subscription_id: null,     // ← clear subscription ID
           })
           .eq('id', profiles[0].id);
@@ -185,9 +185,9 @@ export async function POST(request: NextRequest) {
 
       // ── SUBSCRIPTION UPDATED (e.g. reactivated, past_due) ────────────────
       case 'customer.subscription.updated': {
-        const sub            = event.data.object as Stripe.Subscription;
+        const sub = event.data.object as Stripe.Subscription;
         const subscriptionId = sub.id;
-        const isActive       = sub.status === 'active';
+        const isActive = sub.status === 'active';
 
         console.log('🔄 Subscription updated:', subscriptionId, '| status:', sub.status);
 
@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
-            account_type:        isActive ? 'paid' : 'free',
+            account_type: isActive ? 'paid' : 'free',
             subscription_status: isActive ? 'active' : sub.status,
           })
           .eq('id', profiles[0].id);

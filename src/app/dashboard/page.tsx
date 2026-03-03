@@ -36,16 +36,6 @@ function DashboardPageContent() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [showSubscriptionSuccess, setShowSubscriptionSuccess] = useState(false);
 
-  // hit webhook endpoint when user returns from successful checkout
-  useEffect(() => {
-    if (showSubscriptionSuccess) {
-      fetch('/api/stripe/webhook')
-        .then((r) => r.json())
-        .then((data) => console.log('Webhook called:', data))
-        .catch((e) => console.warn('Webhook call failed', e));
-    }
-  }, [showSubscriptionSuccess]);
-
   useEffect(() => {
     const checkAuth = async () => {
       try {

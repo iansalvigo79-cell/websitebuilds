@@ -19,6 +19,11 @@ import { createClient } from '@supabase/supabase-js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// allow GET so frontend pings don't 405
+export async function GET() {
+  return NextResponse.json({ received: true });
+}
+
 export async function POST(request: NextRequest) {
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret   = process.env.STRIPE_WEBHOOK_SECRET;

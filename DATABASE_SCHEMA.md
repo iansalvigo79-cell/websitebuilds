@@ -176,6 +176,41 @@ Prize competitions: admin creates after each week/month/season, confirms winner,
 
 ---
 
+### `blogs`
+Blog posts published for users to read with analysis and insights.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | Primary key |
+| `title` | VARCHAR(255) | Blog post title |
+| `description` | TEXT | Short description/excerpt |
+| `content` | TEXT | Full blog content (markdown) |
+| `category` | VARCHAR(50) | 'Strategy', 'Preview', or 'Analysis' |
+| `author` | VARCHAR(255) | Author name |
+| `image_url` | VARCHAR(500) | Featured image URL (optional) |
+| `views` | INTEGER | Number of views |
+| `is_published` | BOOLEAN | Whether blog is published |
+| `created_at` | TIMESTAMP | Creation date |
+| `updated_at` | TIMESTAMP | Last update date |
+
+**Example:**
+```json
+{
+  "id": "aa0e8400-e29b-41d4-a716-446665440005",
+  "title": "Top 10 Prediction Strategies for the Premier League",
+  "description": "Learn the best strategies to improve your prediction accuracy and climb the leaderboard this season.",
+  "content": "# Prediction Strategies\n\nHere are the top 10 strategies...",
+  "category": "Strategy",
+  "author": "Alex Champion",
+  "image_url": null,
+  "views": 1250,
+  "is_published": true,
+  "created_at": "2025-02-05T10:00:00"
+}
+```
+
+---
+
 ## API Routes (To Be Built)
 
 ### `POST /api/auth/signin`

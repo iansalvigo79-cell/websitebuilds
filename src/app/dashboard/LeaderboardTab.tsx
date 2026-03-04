@@ -47,9 +47,8 @@ export interface MatchDayOption {
 
 // ── Helper: resolve display name with fallback chain ─────────────────────────
 // Never returns 'Unknown' — falls back to email prefix or 'Player'
-function resolveDisplayName(display_name: string | null | undefined, email: string | null | undefined): string {
+function resolveDisplayName(display_name: string | null | undefined): string {
   if (display_name && display_name.trim() !== '') return display_name.trim();
-  if (email && email.trim() !== '') return email.split('@')[0];
   return 'Player';
 }
 
@@ -149,14 +148,14 @@ export default function LeaderboardTab() {
 
       // fetch email so we can fall back when display_name is blank
       const profileResult = userIds.length
-        ? await supabase.from('profiles').select('id, display_name, email').in('id', userIds)
-        : { data: [] as { id: string; display_name: string | null; email: string | null }[] };
+        ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
+        : { data: [] as { id: string; display_name: string | null; }[] };
       const profileList = profileResult.data;
       if ((profileResult as any).error) console.error('Leaderboard profiles fetch error:', (profileResult as any).error);
 
       // store both display_name and email in profileMap
       const profileMap = new Map(
-        (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, email: p.email }])
+        (profileList || []).map((p: any) => [p.id, { display_name: p.display_name }])
       );
 
       const rawData = predictionsRows.map((p: any) => ({
@@ -182,7 +181,7 @@ export default function LeaderboardTab() {
         if (!grouped[userId]) {
           const profileData = profileMap.get(userId);
           grouped[userId] = {
-            display_name: resolveDisplayName(profileData?.display_name, profileData?.email),
+            display_name: resolveDisplayName(profileData?.display_name),
             total_points: 0,
             predictions_count: 0,
             exact_count: 0,
@@ -341,12 +340,12 @@ export default function LeaderboardTab() {
 
         // fetch email for matchday leaderboard
         const profileResult = userIds.length
-          ? await supabase.from('profiles').select('id, display_name, email').in('id', userIds)
-          : { data: [] as { id: string; display_name: string | null; email: string | null }[] };
+          ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
+          : { data: [] as { id: string; display_name: string | null; }[] };
         const profileList = profileResult.data;
         // store both fields in profileMap
         const profileMap = new Map(
-          (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, email: p.email }])
+          (profileList || []).map((p: any) => [p.id, { display_name: p.display_name }])
         );
 
         const withDiff = (preds as any[]).map((p) => {
@@ -354,7 +353,7 @@ export default function LeaderboardTab() {
           const profileData = profileMap.get(p.user_id);
           return {
             user_id: p.user_id,
-            display_name: resolveDisplayName(profileData?.display_name, profileData?.email),
+            display_name: resolveDisplayName(profileData?.display_name),
             predicted: p.predicted_total_goals,
             points: p.points != null ? p.points : calculatePoints(p.predicted_total_goals, actual),
             diff: Math.abs((p.predicted_total_goals || 0) - actual),

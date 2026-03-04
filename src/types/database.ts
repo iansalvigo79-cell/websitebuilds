@@ -111,3 +111,20 @@ export interface Prize {
   status: PrizeStatus;
   created_at: string;
 }
+
+/** Blog post for publishing insights and analysis. */
+export type BlogCategory = 'Strategy' | 'Preview' | 'Analysis';
+
+export interface Blog {
+  id: string;
+  title: string;
+  description: string;
+  content: string;
+  category: BlogCategory;
+  author: string;
+  image_url: string | null;
+  views: number;
+  is_published: boolean;
+  created_at: string;
+  updated_at: string;
+}

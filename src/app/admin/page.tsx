@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -8,9 +8,11 @@ import AddIcon from '@mui/icons-material/Add';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import SportsScoreIcon from '@mui/icons-material/SportsScore';
 import { toast } from 'react-toastify';
-import { Prize } from '@/types/database';
+import { Prize, Blog, BlogCategory } from '@/types/database';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -70,6 +72,19 @@ export default function AdminPage() {
     seasonId: '',
     matchDate: '',
     cutoffAt: '',
+  });
+  const [blogsList, setBlogsList] = useState<Blog[]>([]);
+  const [blogsLoading, setBlogsLoading] = useState(false);
+  const [blogDialogOpen, setBlogDialogOpen] = useState(false);
+  const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
+  const [blogForm, setBlogForm] = useState({
+    title: '',
+    description: '',
+    content: '',
+    category: 'Strategy' as BlogCategory,
+    author: '',
+    image_url: '',
+    is_published: false,
   });
 
   useEffect(() => {
@@ -304,6 +319,22 @@ export default function AdminPage() {
     }
   }, [getSession]);
 
+  const fetchBlogsList = useCallback(async () => {
+    setBlogsLoading(true);
+    try {
+      const res = await fetch('/api/blogs?limit=100');
+      if (!res.ok) throw new Error('Failed to fetch blogs');
+      const { blogs } = await res.json();
+      setBlogsList(blogs || []);
+    } catch (err) {
+      console.error('Error fetching blogs:', err);
+      toast.error('Failed to load blogs');
+      setBlogsList([]);
+    } finally {
+      setBlogsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (tabValue === 0 || tabValue === 1) fetchSeasons();
   }, [tabValue, fetchSeasons]);
@@ -320,6 +351,9 @@ export default function AdminPage() {
   useEffect(() => {
     if (tabValue === 4) fetchPrizesList();
   }, [tabValue, fetchPrizesList]);
+  useEffect(() => {
+    if (tabValue === 5) fetchBlogsList();
+  }, [tabValue, fetchBlogsList]);
 
   const handleSaveActualGoals = async (matchDayId: string) => {
     const raw = actualGoalsInputs[matchDayId];
@@ -435,6 +469,100 @@ export default function AdminPage() {
     }
   };
 
+  const handleSaveBlog = async () => {
+    if (!blogForm.title || !blogForm.description || !blogForm.content || !blogForm.category || !blogForm.author) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      // Get the session token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error('Session expired. Please login again.');
+      }
+
+      const method = editingBlogId ? 'PUT' : 'POST';
+      const url = editingBlogId ? `/api/blogs/${editingBlogId}` : '/api/blogs';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(blogForm),
+      });
+
+      console.log('response', res);
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save blog');
+      }
+
+      toast.success(editingBlogId ? 'Blog updated successfully!' : 'Blog created successfully!');
+      setBlogForm({
+        title: '',
+        description: '',
+        content: '',
+        category: 'Strategy',
+        author: '',
+        image_url: '',
+        is_published: false,
+      });
+      setEditingBlogId(null);
+      setBlogDialogOpen(false);
+      fetchBlogsList();
+    } catch (err) {
+      console.error('Error saving blog:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to save blog');
+    }
+  };
+
+  const handleDeleteBlog = async (blogId: string) => {
+    if (!confirm('Are you sure you want to delete this blog?')) return;
+
+    try {
+      // Get the session token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error('Session expired. Please login again.');
+      }
+
+      const res = await fetch(`/api/blogs/${blogId}`, { 
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to delete blog');
+      }
+
+      toast.success('Blog deleted successfully!');
+      fetchBlogsList();
+    } catch (err) {
+      console.error('Error deleting blog:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to delete blog');
+    }
+  };
+
+  const handleEditBlog = (blog: Blog) => {
+    setBlogForm({
+      title: blog.title,
+      description: blog.description,
+      content: blog.content,
+      category: blog.category,
+      author: blog.author,
+      image_url: blog.image_url || '',
+      is_published: blog.is_published,
+    });
+    setEditingBlogId(blog.id);
+    setBlogDialogOpen(true);
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/');
@@ -499,6 +627,7 @@ export default function AdminPage() {
             <Tab label="Games" />
             <Tab label="Scores" />
             <Tab label="Prizes" icon={<EmojiEventsIcon />} iconPosition="start" />
+            <Tab label="Blogs" />
           </Tabs>
         </Box>
 
@@ -1299,6 +1428,116 @@ export default function AdminPage() {
           </Box>
         </TabPanel>
 
+        <TabPanel value={tabValue} index={5}>
+          <Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 4 }}>
+              <Box>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
+                  Manage Blogs
+                </Typography>
+                <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>Create, edit, and publish blog posts.</Typography>
+              </Box>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => {
+                  setEditingBlogId(null);
+                  setBlogForm({
+                    title: '',
+                    description: '',
+                    content: '',
+                    category: 'Strategy',
+                    author: '',
+                    image_url: '',
+                    is_published: false,
+                  });
+                  setBlogDialogOpen(true);
+                }}
+                sx={{
+                  backgroundColor: '#16a34a',
+                  color: '#fff',
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  '&:hover': { backgroundColor: '#15803d' },
+                }}
+              >
+                New Blog
+              </Button>
+            </Box>
+
+            {blogsLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress sx={{ color: '#16a34a' }} />
+              </Box>
+            ) : blogsList.length === 0 ? (
+              <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
+                <Typography sx={{ color: '#64748b' }}>No blogs yet. Create one to get started.</Typography>
+              </Box>
+            ) : (
+              <TableContainer sx={{ border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: 2, overflow: 'hidden' }}>
+                <Table>
+                  <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
+                    <TableRow>
+                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Title</TableCell>
+                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Category</TableCell>
+                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Author</TableCell>
+                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Views</TableCell>
+                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Status</TableCell>
+                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {blogsList.map((blog) => (
+                      <TableRow key={blog.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.05)' } }}>
+                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {blog.title}
+                        </TableCell>
+                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                          <Chip label={blog.category} size="small" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#e2e8f0' }} />
+                        </TableCell>
+                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                          {blog.author}
+                        </TableCell>
+                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                          {blog.views}
+                        </TableCell>
+                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                          <Chip
+                            label={blog.is_published ? 'Published' : 'Draft'}
+                            size="small"
+                            sx={{
+                              backgroundColor: blog.is_published ? 'rgba(22, 163, 74, 0.25)' : 'rgba(100, 116, 139, 0.25)',
+                              color: blog.is_published ? '#16a34a' : '#94a3b8',
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                          <Stack direction="row" spacing={1}>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleEditBlog(blog)}
+                              sx={{ color: '#3b82f6' }}
+                            >
+                              <EditIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleDeleteBlog(blog.id)}
+                              sx={{ color: '#ef4444' }}
+                            >
+                              <DeleteIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Box>
+        </TabPanel>
+
         <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
           <DialogTitle sx={{ backgroundColor: '#1e293b', color: '#fff', fontWeight: 700 }}>Create New Season</DialogTitle>
           <DialogContent sx={{ backgroundColor: '#0f172a', pt: 3 }}>
@@ -1418,6 +1657,125 @@ export default function AdminPage() {
                   sx={{ backgroundColor: '#16a34a', color: '#fff', fontWeight: 700, '&:hover': { backgroundColor: '#15803d' } }}
                 >
                   Create Match Day
+                </Button>
+              </Box>
+            </Stack>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={blogDialogOpen} onClose={() => setBlogDialogOpen(false)} maxWidth="md" fullWidth>
+          <DialogTitle sx={{ backgroundColor: '#1e293b', color: '#fff', fontWeight: 700 }}>
+            {editingBlogId ? 'Edit Blog' : 'Create New Blog'}
+          </DialogTitle>
+          <DialogContent sx={{ backgroundColor: '#0f172a', pt: 3 }}>
+            <Stack spacing={2.5}>
+              <TextField
+                label="Title"
+                value={blogForm.title}
+                onChange={(e) => setBlogForm({ ...blogForm, title: e.target.value })}
+                fullWidth
+                variant="outlined"
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <TextField
+                label="Description (Short summary)"
+                value={blogForm.description}
+                onChange={(e) => setBlogForm({ ...blogForm, description: e.target.value })}
+                fullWidth
+                multiline
+                rows={2}
+                variant="outlined"
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  '& .MuiInputBase-input': { color: '#fff' },
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <TextField
+                label="Content (Markdown supported)"
+                value={blogForm.content}
+                onChange={(e) => setBlogForm({ ...blogForm, content: e.target.value })}
+                fullWidth
+                multiline
+                rows={8}
+                variant="outlined"
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  '& .MuiInputBase-input': { color: '#fff' },
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <TextField
+                label="Category"
+                select
+                value={blogForm.category}
+                onChange={(e) => setBlogForm({ ...blogForm, category: e.target.value as BlogCategory })}
+                fullWidth
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              >
+                <MenuItem value="Strategy" sx={{ color: '#0f172a' }}>Strategy</MenuItem>
+                <MenuItem value="Preview" sx={{ color: '#0f172a' }}>Preview</MenuItem>
+                <MenuItem value="Analysis" sx={{ color: '#0f172a' }}>Analysis</MenuItem>
+              </TextField>
+              <TextField
+                label="Author"
+                value={blogForm.author}
+                onChange={(e) => setBlogForm({ ...blogForm, author: e.target.value })}
+                fullWidth
+                variant="outlined"
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <TextField
+                label="Image URL (Optional)"
+                value={blogForm.image_url}
+                onChange={(e) => setBlogForm({ ...blogForm, image_url: e.target.value })}
+                fullWidth
+                variant="outlined"
+                sx={{ 
+                  input: { color: '#fff' }, 
+                  label: { color: '#94a3b8' },
+                  '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
+                }}
+              />
+              <Box>
+                <Chip
+                  label={blogForm.is_published ? '✓ Published' : '○ Draft'}
+                  onClick={() => setBlogForm({ ...blogForm, is_published: !blogForm.is_published })}
+                  sx={{
+                    backgroundColor: blogForm.is_published ? 'rgba(22, 163, 74, 0.25)' : 'rgba(100, 116, 139, 0.25)',
+                    color: blogForm.is_published ? '#16a34a' : '#94a3b8',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                  }}
+                />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
+                <Button 
+                  onClick={() => setBlogDialogOpen(false)} 
+                  sx={{ color: '#94a3b8' }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveBlog}
+                  variant="contained"
+                  sx={{ backgroundColor: '#16a34a', color: '#fff', fontWeight: 700, '&:hover': { backgroundColor: '#15803d' } }}
+                >
+                  {editingBlogId ? 'Update Blog' : 'Create Blog'}
                 </Button>
               </Box>
             </Stack>

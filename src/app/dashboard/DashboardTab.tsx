@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Typography, Stack, Button, Card, CardContent, Grid, CircularProgress, IconButton, Paper, Collapse, Skeleton } from '@mui/material';
+import { Box, Typography, Stack, Button, Card, CardContent, Grid, IconButton, Paper, Collapse, Skeleton } from '@mui/material';
 import { League, Season, MatchDay, Game } from '@/types/database';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
@@ -19,6 +19,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import PrizeWidget from './PrizeWidget';
 import './DashboardTab.css';
+import ModernLoader from '@/components/ui/ModernLoader';
 // import './DashboardTab.css';
 
 // Fallback logo mapping for leagues without logo_url in DB
@@ -231,9 +232,11 @@ export default function DashboardTab() {
   // ─── Loading state ───
   if (isLoading) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <CircularProgress sx={{ color: '#0f5d1f' }} />
-      </Box>
+      <ModernLoader
+        label="Loading Dashboard Data"
+        sublabel="Syncing leagues and matchday info..."
+        minHeight="60vh"
+      />
     );
   }
 
@@ -560,9 +563,11 @@ export default function DashboardTab() {
 
           {/* Loading matches indicator */}
           {isLoadingMatches && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 6 }}>
-              <CircularProgress sx={{ color: '#0f5d1f' }} />
-            </Box>
+            <ModernLoader
+              label="Loading Matches"
+              sublabel="Updating selected league fixtures..."
+              minHeight={220}
+            />
           )}
 
           {/* Match Day Sections */}

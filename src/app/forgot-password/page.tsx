@@ -1,11 +1,12 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack, CircularProgress } from '@mui/material';
+import { Box, Button, Container, TextField, Typography, Stack } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -93,7 +94,7 @@ export default function ForgotPasswordPage() {
                 variant="contained"
                 size="large"
                 disabled={isLoading}
-                endIcon={isLoading ? <CircularProgress size={20} sx={{ color: '#0f0505' }} /> : <ArrowForwardIcon />}
+                endIcon={isLoading ? <ModernLoader inline size={20} label="" sublabel="" /> : <ArrowForwardIcon />}
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#0f0505',

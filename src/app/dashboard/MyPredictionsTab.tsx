@@ -1,35 +1,37 @@
-"use client";
+﻿"use client";
 
 import {
+  Avatar,
   Box,
-  Typography,
+  Button,
   Card,
   CardContent,
-  Grid,
-  Stack,
   Chip,
+  CircularProgress,
+  Grid,
+  LinearProgress,
+  Stack,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Button,
-  ToggleButtonGroup,
   ToggleButton,
-  CircularProgress,
+  ToggleButtonGroup,
+  Typography,
 } from '@mui/material';
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import StarIcon from '@mui/icons-material/Star';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import WhatshotIcon from '@mui/icons-material/Whatshot';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import PercentIcon from '@mui/icons-material/Percent';
-import FavoriteIcon from '@mui/icons-material/Favorite';
-import LockIcon from '@mui/icons-material/Lock';
-import { BADGE_INFO } from '@/lib/badges';
 import type { BadgeType } from '@/types/database';
+import { BADGE_INFO } from '@/lib/badges';
+import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Area } from 'recharts';
+import InsightsIcon from '@mui/icons-material/Insights';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import PercentIcon from '@mui/icons-material/Percent';
+import WhatshotIcon from '@mui/icons-material/Whatshot';
+import LockIcon from '@mui/icons-material/Lock';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 interface PredictionRow {
   id: string;
@@ -49,22 +51,43 @@ interface ProfileInfo {
   display_name: string;
 }
 
-const CHART_MAX_PTS = 30;
-const CHART_BAR_COLOR = '#3b82f6';
-const CHART_FT_COLOR = '#eab308';
+type HistoryFilter = 'all' | 'exact' | 'last5';
 
-function formatMemberSince(createdAt: string): string {
-  const d = new Date(createdAt);
-  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-}
+const allBadgeTypes: BadgeType[] = ['first_prediction', 'exact_prediction', 'streak_3', 'streak_5', 'streak_10', 'top_weekly', 'top_monthly', 'top_season'];
 
-function getWeekStart(d: Date): Date {
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  const monday = new Date(d);
-  monday.setDate(diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
+const cardSx = { backgroundColor: '#161a23', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' };
+
+const fmtMember = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+const initials = (n?: string) => (n || 'Goalactico').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase();
+const weekStart = (d: Date) => { const x = new Date(d); const day = x.getDay(); x.setDate(x.getDate() - day + (day === 0 ? -6 : 1)); x.setHours(0, 0, 0, 0); return x; };
+
+function useAnimatedNumber(target: number, durationMs = 900) {
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    const end = Math.max(0, target);
+    const start = value;
+    const delta = end - start;
+    if (Math.abs(delta) < 0.1) {
+      setValue(end);
+      return;
+    }
+
+    let raf = 0;
+    const startedAt = performance.now();
+    const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+    const step = (now: number) => {
+      const p = Math.min(1, (now - startedAt) / durationMs);
+      setValue(start + delta * easeOutCubic(p));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+
+  return value;
 }
 
 export default function MyPredictionsTab() {
@@ -78,435 +101,265 @@ export default function MyPredictionsTab() {
   const [exactCount, setExactCount] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
   const [earnedBadges, setEarnedBadges] = useState<BadgeType[]>([]);
-  const [historyFilter, setHistoryFilter] = useState<'all' | 'exact' | 'zero'>('all');
-  const [isLoading, setIsLoading] = useState(true);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
+    if (!user) { setLoading(false); return; }
 
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('created_at, subscription_status, account_type, display_name')
-      .eq('id', user.id)
-      .maybeSingle();
+    const { data: profileData } = await supabase.from('profiles').select('created_at, subscription_status, account_type, display_name').eq('id', user.id).maybeSingle();
     if (profileData) setProfile(profileData as ProfileInfo);
 
-    const { data: seasonData } = await supabase
-      .from('seasons')
-      .select('id, name')
-      .eq('is_active', true)
-      .maybeSingle();
+    const { data: seasonData } = await supabase.from('seasons').select('id, name').eq('is_active', true).maybeSingle();
     if (seasonData) setSeasonName(seasonData.name || '');
 
-    const { data: predRows } = await supabase
-      .from('predictions')
-      .select('id, match_day_id, predicted_total_goals, points')
-      .eq('user_id', user.id);
-    const predList = predRows || [];
-
-    const mdIds = [...new Set(predList.map((p: any) => p.match_day_id))];
-    const { data: mdList } = mdIds.length
-      ? await supabase.from('match_days').select('id, match_date, actual_total_goals, season_id').in('id', mdIds)
-      : { data: [] };
+    const { data: predRows } = await supabase.from('predictions').select('id, match_day_id, predicted_total_goals, points').eq('user_id', user.id);
+    const list = predRows || [];
+    const mdIds = [...new Set(list.map((p: any) => p.match_day_id))];
+    const { data: mdList } = mdIds.length ? await supabase.from('match_days').select('id, match_date, actual_total_goals, season_id').in('id', mdIds) : { data: [] };
     const mdMap = new Map((mdList || []).map((m: any) => [m.id, m]));
 
+    let rank: number | null = null;
     const seasonId = seasonData?.id;
-    let globalRankVal: number | null = null;
     if (seasonId) {
-      const { data: seasonMatchDays } = await supabase
-        .from('match_days')
-        .select('id')
-        .eq('season_id', seasonId);
-      const seasonMdIds = (seasonMatchDays || []).map((m: any) => m.id);
-      if (seasonMdIds.length > 0) {
-        const { data: allPredData } = await supabase
-          .from('predictions')
-          .select('user_id, points, match_day_id')
-          .in('match_day_id', seasonMdIds);
-        const userTotals: Record<string, number> = {};
-        (allPredData || []).forEach((p: any) => {
-          userTotals[p.user_id] = (userTotals[p.user_id] || 0) + (p.points ?? 0);
-        });
-        const ranked = Object.entries(userTotals).sort((a, b) => b[1] - a[1]);
-        const rankIndex = ranked.findIndex(([uid]) => uid === user.id);
-        globalRankVal = rankIndex >= 0 ? rankIndex + 1 : null;
+      const { data: sDays } = await supabase.from('match_days').select('id').eq('season_id', seasonId);
+      const seasonMdIds = (sDays || []).map((m: any) => m.id);
+      if (seasonMdIds.length) {
+        const { data: allPredData } = await supabase.from('predictions').select('user_id, points, match_day_id').in('match_day_id', seasonMdIds);
+        const totals: Record<string, number> = {};
+        (allPredData || []).forEach((p: any) => { totals[p.user_id] = (totals[p.user_id] || 0) + (p.points ?? 0); });
+        const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+        const idx = ranked.findIndex(([uid]) => uid === user.id);
+        rank = idx >= 0 ? idx + 1 : null;
       }
     }
-    setGlobalRank(globalRankVal);
+    setGlobalRank(rank);
 
-    const weekStart = getWeekStart(new Date());
-    const isFirstRank = globalRankVal === 1;
-    let total = 0;
-    let weekPts = 0;
-    let exact = 0;
+    const sortedMd = mdIds.map((id) => ({ id, d: mdMap.get(id)?.match_date })).filter((x) => x.d).sort((a, b) => (a.d! > b.d! ? 1 : -1)).map((x) => x.id);
+    const start = weekStart(new Date());
+    let total = 0, week = 0, exact = 0;
     const rows: PredictionRow[] = [];
-    const sortedMdIds = mdIds
-      .map((id) => ({ id, match_date: mdMap.get(id)?.match_date }))
-      .filter((x) => x.match_date)
-      .sort((a, b) => (a.match_date! > b.match_date! ? -1 : 1))
-      .map((x) => x.id);
-
-    predList.forEach((p: any) => {
-      const md = mdMap.get(p.match_day_id);
-      if (!md) return;
-      const pts = p.points ?? 0;
-      total += pts;
-      const matchDate = new Date(md.match_date);
-      if (matchDate >= weekStart) weekPts += pts;
-      const actual = md.actual_total_goals;
-      const isExact = actual != null && p.predicted_total_goals === actual && pts === 10;
+    list.forEach((p: any) => {
+      const md = mdMap.get(p.match_day_id); if (!md) return;
+      const pts = p.points ?? 0; total += pts;
+      if (new Date(md.match_date) >= start) week += pts;
+      const isExact = md.actual_total_goals != null && p.predicted_total_goals === md.actual_total_goals && pts === 10;
       if (isExact) exact += 1;
-      const mdNum = sortedMdIds.indexOf(p.match_day_id) + 1;
       rows.push({
-        id: p.id,
-        match_day_id: p.match_day_id,
-        match_date: md.match_date,
-        matchdayLabel: `MD ${mdNum}`,
-        predicted_total_goals: p.predicted_total_goals,
-        actual_total_goals: actual,
-        points: p.points,
-        isExact,
+        id: p.id, match_day_id: p.match_day_id, match_date: md.match_date, matchdayLabel: `MD ${sortedMd.indexOf(p.match_day_id) + 1}`,
+        predicted_total_goals: p.predicted_total_goals, actual_total_goals: md.actual_total_goals, points: p.points, isExact,
       });
     });
     rows.sort((a, b) => (b.match_date > a.match_date ? 1 : -1));
-    setTotalPoints(total);
-    setThisWeekPoints(weekPts);
-    setExactCount(exact);
-    setMatchdaysPlayed(rows.length);
-    setPredictions(rows);
+    setPredictions(rows); setTotalPoints(total); setThisWeekPoints(week); setExactCount(exact); setMatchdaysPlayed(rows.length);
 
-    const ptsOrdered = sortedMdIds.map((id) => {
-      const p = predList.find((x: any) => x.match_day_id === id);
-      const pts = p?.points ?? 0;
-      return pts;
-    });
-    let streak = 0;
-    let maxStreak = 0;
-    ptsOrdered.forEach((pts) => {
-      if (pts > 0) {
-        streak += 1;
-        maxStreak = Math.max(maxStreak, streak);
-      } else streak = 0;
-    });
-    setBestStreak(maxStreak);
+    let streak = 0, max = 0;
+    sortedMd.map((id) => list.find((x: any) => x.match_day_id === id)?.points ?? 0).forEach((p) => { if (p > 0) { streak += 1; max = Math.max(max, streak); } else streak = 0; });
+    setBestStreak(max);
 
     const badges: BadgeType[] = [];
-    if (predList.length >= 1) badges.push('first_prediction');
+    if (list.length >= 1) badges.push('first_prediction');
     if (exact >= 1) badges.push('exact_prediction');
-    if (maxStreak >= 3) badges.push('streak_3');
-    if (maxStreak >= 5) badges.push('streak_5');
-    if (maxStreak >= 10) badges.push('streak_10');
-    if (isFirstRank) {
-      badges.push('top_weekly');
-      badges.push('top_monthly');
-      badges.push('top_season');
-    }
+    if (max >= 3) badges.push('streak_3');
+    if (max >= 5) badges.push('streak_5');
+    if (max >= 10) badges.push('streak_10');
+    if (rank === 1) badges.push('top_weekly', 'top_monthly', 'top_season');
     setEarnedBadges(badges);
-    setIsLoading(false);
+    setLoading(false);
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const chartData = predictions
-    .slice(0, 12)
-    .reverse()
-    .map((p) => ({
-      label: p.matchdayLabel,
-      pts: p.points ?? 0,
-    }));
+  const completed = useMemo(() => predictions.filter((p) => p.actual_total_goals != null), [predictions]);
+  const close = useMemo(() => completed.filter((p) => (p.points ?? 0) > 0 && (p.points ?? 0) < 10).length, [completed]);
+  const miss = useMemo(() => completed.filter((p) => (p.points ?? 0) <= 0).length, [completed]);
+  const accuracy = matchdaysPlayed ? Math.round((exactCount / matchdaysPlayed) * 100) : 0;
+  const exactRate = completed.length ? Math.round((exactCount / completed.length) * 100) : 0;
+  const closeRate = completed.length ? Math.round((close / completed.length) * 100) : 0;
+  const missRate = completed.length ? Math.round((miss / completed.length) * 100) : 0;
+  const avg = completed.length ? (completed.reduce((a, b) => a + (b.points ?? 0), 0) / completed.length).toFixed(1) : '0.0';
+  const best = useMemo(() => completed.length ? [...completed].sort((a, b) => (b.points ?? 0) - (a.points ?? 0))[0] : null, [completed]);
+  const worst = useMemo(() => completed.length ? [...completed].sort((a, b) => (a.points ?? 0) - (b.points ?? 0))[0] : null, [completed]);
 
-  const filteredHistory =
-    historyFilter === 'exact'
-      ? predictions.filter((p) => p.isExact)
-      : historyFilter === 'zero'
-        ? predictions.filter((p) => (p.points ?? 0) === 0)
-        : predictions;
+  const chartData = useMemo(() => [...predictions].sort((a, b) => (a.match_date > b.match_date ? 1 : -1)).slice(-12).map((p) => ({ label: p.matchdayLabel, pts: p.points ?? 0 })), [predictions]);
+  const history = useMemo(() => historyFilter === 'exact' ? predictions.filter((p) => p.isExact) : historyFilter === 'last5' ? predictions.slice(0, 5) : predictions, [historyFilter, predictions]);
+  const streakProgress = Math.min(100, bestStreak * 12);
+  const animatedAccuracy = useAnimatedNumber(accuracy, 900);
+  const animatedStreakProgress = useAnimatedNumber(streakProgress, 900);
+  const animatedStreakValue = useAnimatedNumber(bestStreak, 900);
+  const pageSize = 5;
+  const pages = Math.max(1, Math.ceil(history.length / pageSize));
+  const paged = history.slice(page * pageSize, page * pageSize + pageSize);
+  useEffect(() => { setPage(0); }, [historyFilter]);
 
-  const accuracy = matchdaysPlayed > 0 ? Math.round((exactCount / matchdaysPlayed) * 100) : 0;
-  const allBadgeTypes: BadgeType[] = [
-    'first_prediction',
-    'exact_prediction',
-    'streak_3',
-    'streak_5',
-    'streak_10',
-    'top_weekly',
-    'top_monthly',
-    'top_season',
-  ];
-  const lockedBadges = allBadgeTypes.filter((b) => !earnedBadges.includes(b));
-
-  if (isLoading) {
+  if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress sx={{ color: '#16a34a' }} />
-      </Box>
+      <ModernLoader
+        label="Loading Performance Data"
+        sublabel="Preparing your prediction analytics..."
+        minHeight={320}
+      />
     );
   }
 
   return (
-    <Box sx={{ maxWidth: 'lg', mx: 'auto' }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, mb: 4 }}>
+    <Box>
+      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" sx={{ mb: 2, gap: 1 }}>
         <Box>
-          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
-            <Box sx={{ width: 40, height: 40, borderRadius: 1, bgcolor: 'rgba(22, 163, 74, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography sx={{ fontWeight: 800, color: '#16a34a', fontSize: '1rem' }}>GO</Typography>
-            </Box>
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff' }}>
-              Goalactico
-            </Typography>
-            {(profile?.account_type === 'paid' || profile?.subscription_status === 'active') && (
-              <Chip icon={<StarIcon sx={{ fontSize: '0.9rem' }} />} label="PAID" size="small" sx={{ bgcolor: 'rgba(234, 179, 8, 0.2)', color: '#eab308', fontWeight: 700 }} />
-            )}
-          </Stack>
-          {profile?.created_at && (
-            <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem', mb: 0.5 }}>
-              Member since {formatMemberSince(profile.created_at)}
-            </Typography>
-          )}
-          <Stack direction="row" flexWrap="wrap" alignItems="center" sx={{ mt: 1, gap: 2 }}>
-            {globalRank != null && (
-              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.25rem' }}>
-                #{globalRank} GLOBAL RANK
-              </Typography>
-            )}
-            <Typography sx={{ color: '#eab308', fontWeight: 700, fontSize: '1.1rem' }}>
-              {totalPoints}pts TOTAL POINTS
-            </Typography>
-            <Typography sx={{ color: '#16a34a', fontWeight: 700, fontSize: '1rem' }}>
-              {thisWeekPoints}pts THIS WEEK
-            </Typography>
-            <Typography sx={{ color: '#a855f7', fontWeight: 700, fontSize: '1rem' }}>
-              {earnedBadges.length} BADGES
-            </Typography>
-          </Stack>
+          <Typography sx={{ color: '#fff', fontSize: { xs: '1.2rem', md: '1.55rem' }, fontWeight: 900 }}>PERFORMANCE <Box component="span" sx={{ color: '#22c55e' }}>ANALYTICS</Box></Typography>
+          <Typography sx={{ color: '#9ca3af', fontSize: '0.82rem' }}>Deep insights into your prediction journey</Typography>
         </Box>
-        <Box sx={{ textAlign: 'right' }}>
-          <Typography sx={{ color: '#93c5fd', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
-            SEASON {seasonName}
-          </Typography>
-          <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem' }}>
-            Matchdays played: <strong style={{ color: '#fff' }}>{matchdaysPlayed}</strong>
-          </Typography>
-        </Box>
-      </Box>
+      </Stack>
 
-      {/* Points per matchday chart */}
-      <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)', mb: 4 }}>
-        <CardContent sx={{ p: 3 }}>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', mb: 0.5 }}>
-            Points Per Matchday
-          </Typography>
-          <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem', mb: 2 }}>
-            Last {chartData.length} matchdays – FT Goals
-          </Typography>
-          <Stack direction="row" spacing={0.5} sx={{ mb: 1 }}>
-            <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: CHART_BAR_COLOR }} />
-            <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem' }}>Total pts</Typography>
-            <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: CHART_FT_COLOR, ml: 1 }} />
-            <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem' }}>FT Goals pts</Typography>
-          </Stack>
-          <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 180, mt: 2 }}>
-            {chartData.map((d, i) => (
-              <Box key={i} sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Box
-                  sx={{
-                    width: '100%',
-                    height: `${Math.min(100, (d.pts / CHART_MAX_PTS) * 100)}%`,
-                    minHeight: d.pts > 0 ? 8 : 0,
-                    borderRadius: '4px 4px 0 0',
-                    bgcolor: CHART_FT_COLOR,
-                  }}
-                />
-                <Typography sx={{ color: '#6b7280', fontSize: '0.7rem', mt: 0.5 }}>{d.label}</Typography>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        <Grid item xs={12} md={8}>
+          <Card sx={cardSx}><CardContent sx={{ p: 2.2 }}>
+            <Stack direction="row" spacing={1.2} alignItems="center">
+              <Avatar sx={{ width: 54, height: 54, bgcolor: '#fef3c7', color: '#0f172a', fontWeight: 900 }}>{initials(profile?.display_name)}</Avatar>
+              <Box>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography sx={{ color: '#fff', fontWeight: 800 }}>{profile?.display_name || 'Goalactico'}</Typography>
+                  {(profile?.account_type === 'paid' || profile?.subscription_status === 'active') && <Chip label="PRO MEMBER" size="small" sx={{ height: 20, fontSize: '0.62rem', fontWeight: 800, bgcolor: 'rgba(22,163,74,0.2)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' }} />}
+                </Stack>
+                <Typography sx={{ color: '#6b7280', fontSize: '0.74rem' }}>Member since {profile?.created_at ? fmtMember(profile.created_at) : '-'}</Typography>
               </Box>
-            ))}
-          </Box>
-        </CardContent>
-      </Card>
-
-      {/* Summary cards */}
-      <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={6} md={3}>
-          <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: 'rgba(236,72,153,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                <BarChartIcon sx={{ color: '#ec4899', fontSize: '1.1rem' }} />
-              </Box>
-              <Typography sx={{ color: '#fff', fontSize: '1.75rem', fontWeight: 800 }}>{matchdaysPlayed}</Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Matchdays played</Typography>
-            </CardContent>
-          </Card>
+            </Stack>
+            <Grid container spacing={2} sx={{ mt: 1.5 }}>
+              <Grid item xs={4}><Typography className="ga-label">Total Points</Typography><Typography sx={{ color: '#fff', fontSize: '1.75rem', fontWeight: 900 }}>{totalPoints.toLocaleString()}</Typography></Grid>
+              <Grid item xs={4}><Typography className="ga-label">This Week</Typography><Typography sx={{ color: '#22c55e', fontSize: '1.75rem', fontWeight: 900 }}>+{thisWeekPoints}</Typography></Grid>
+              <Grid item xs={4}><Typography className="ga-label">Badges</Typography><Typography sx={{ color: '#fff', fontSize: '1.75rem', fontWeight: 900 }}>{earnedBadges.length}</Typography></Grid>
+            </Grid>
+          </CardContent></Card>
         </Grid>
-        <Grid item xs={6} md={3}>
-          <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: 'rgba(236,72,153,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                <EmojiEventsIcon sx={{ color: '#ec4899', fontSize: '1.1rem' }} />
+        <Grid item xs={12} md={4}>
+          <Card sx={cardSx}><CardContent sx={{ p: 2.2 }}>
+            <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 700 }}>Season {seasonName || '2025/26'}</Typography>
+            <Typography sx={{ color: '#6b7280', fontSize: '0.72rem' }}>Matchdays played: {matchdaysPlayed} | Rank: #{globalRank ?? '-'}</Typography>
+            <Stack direction="row" justifyContent="space-around" sx={{ mt: 2 }}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                  <CircularProgress variant="determinate" value={100} size={72} sx={{ color: 'rgba(255,255,255,0.08)' }} />
+                  <CircularProgress
+                    variant="determinate"
+                    value={animatedAccuracy}
+                    size={72}
+                    sx={{ color: '#22c55e', position: 'absolute', left: 0, '& .MuiCircularProgress-circle': { strokeLinecap: 'round' } }}
+                  />
+                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography sx={{ color: '#fff', fontWeight: 800 }}>{Math.round(animatedAccuracy)}%</Typography>
+                  </Box>
+                </Box>
+                <Typography sx={{ color: '#6b7280', fontSize: '0.66rem', fontWeight: 700, mt: 0.8 }}>HIT RATE</Typography>
               </Box>
-              <Typography sx={{ color: '#fff', fontSize: '1.75rem', fontWeight: 800 }}>{exactCount}</Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Exact hits (out of {matchdaysPlayed})</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: 'rgba(59,130,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                <PercentIcon sx={{ color: '#3b82f6', fontSize: '1.1rem' }} />
+              <Box sx={{ textAlign: 'center' }}>
+                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                  <CircularProgress variant="determinate" value={100} size={72} sx={{ color: 'rgba(255,255,255,0.08)' }} />
+                  <CircularProgress
+                    variant="determinate"
+                    value={animatedStreakProgress}
+                    size={72}
+                    sx={{ color: '#f59e0b', position: 'absolute', left: 0, '& .MuiCircularProgress-circle': { strokeLinecap: 'round' } }}
+                  />
+                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography sx={{ color: '#fff', fontWeight: 800 }}>{Math.round(animatedStreakValue)}</Typography>
+                  </Box>
+                </Box>
+                <Typography sx={{ color: '#6b7280', fontSize: '0.66rem', fontWeight: 700, mt: 0.8 }}>STREAK</Typography>
               </Box>
-              <Typography sx={{ color: '#fff', fontSize: '1.75rem', fontWeight: 800 }}>{accuracy}%</Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Exact hit rate</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={6} md={3}>
-          <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ width: 32, height: 32, borderRadius: 1, bgcolor: 'rgba(249,115,22,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 1 }}>
-                <WhatshotIcon sx={{ color: '#f97316', fontSize: '1.1rem' }} />
-              </Box>
-              <Typography sx={{ color: '#fff', fontSize: '1.75rem', fontWeight: 800 }}>{bestStreak}</Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Consecutive with pts</Typography>
-            </CardContent>
-          </Card>
+            </Stack>
+          </CardContent></Card>
         </Grid>
       </Grid>
 
-      {/* Badges */}
-      <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)', mb: 4 }}>
-        <CardContent sx={{ p: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            <Box>
-              <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem' }}>Badges</Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem' }}>
-                {earnedBadges.length} earned – {lockedBadges.length} locked
-              </Typography>
-            </Box>
-            <Button size="small" sx={{ color: '#60a5fa', textTransform: 'none' }}>View all</Button>
-          </Box>
-          <Grid container spacing={2}>
-            {allBadgeTypes.map((type) => {
-              const earned = earnedBadges.includes(type);
-              const info = BADGE_INFO[type];
-              return (
-                <Grid item xs={12} sm={6} md={4} key={type}>
-                  <Box
-                    sx={{
-                      p: 2,
-                      borderRadius: 2,
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      bgcolor: earned ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.02)',
-                      opacity: earned ? 1 : 0.7,
-                    }}
-                  >
-                    <Stack direction="row" alignItems="center" spacing={1.5}>
-                      <Box
-                        sx={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: 2,
-                          bgcolor: earned ? 'rgba(234,179,8,0.2)' : 'rgba(107,114,128,0.3)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        {earned ? (
-                          <EmojiEventsIcon sx={{ color: '#eab308', fontSize: '1.25rem' }} />
-                        ) : (
-                          <LockIcon sx={{ color: '#6b7280', fontSize: '1.1rem' }} />
-                        )}
-                      </Box>
-                      <Box>
-                        <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '0.95rem' }}>{info?.label ?? type}</Typography>
-                        <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>{info?.description ?? ''}</Typography>
-                        {earned && (
-                          <Typography sx={{ color: '#16a34a', fontSize: '0.75rem', mt: 0.5 }}>Earned</Typography>
-                        )}
-                      </Box>
-                    </Stack>
-                  </Box>
-                </Grid>
-              );
-            })}
-          </Grid>
-        </CardContent>
-      </Card>
+      <Card sx={{ ...cardSx, mb: 2 }}><CardContent sx={{ p: 2.2 }}>
+        <Typography sx={{ color: '#fff', fontWeight: 800 }}>POINTS PERFORMANCE</Typography>
+        <Typography sx={{ color: '#6b7280', fontSize: '0.72rem', mb: 1.2 }}>Your progression through the season</Typography>
+        <Box sx={{ width: '100%', height: 280 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData}>
+              <CartesianGrid stroke="rgba(255,255,255,0.04)" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={{ background: '#1e2330', border: '1px solid rgba(22,163,74,0.5)', borderRadius: 10, color: '#fff' }} />
+              <Area type="monotone" dataKey="pts" fill="rgba(22,163,74,0.14)" stroke="none" />
+              <Line type="monotone" dataKey="pts" stroke="#16a34a" strokeWidth={3} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Box>
+      </CardContent></Card>
 
-      {/* Prediction history */}
-      <Card sx={{ bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)' }}>
-        <CardContent sx={{ p: 3 }}>
-          <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', mb: 2 }}>
-            Prediction History
-          </Typography>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-            <ToggleButtonGroup
-              value={historyFilter}
-              exclusive
-              onChange={(_, v) => v != null && setHistoryFilter(v)}
-              size="small"
-              sx={{
-                '& .MuiToggleButton-root': { color: '#9ca3af', borderColor: 'rgba(255,255,255,0.12)', textTransform: 'none' },
-                '& .Mui-selected': { color: '#60a5fa', borderColor: '#60a5fa', bgcolor: 'rgba(96,165,250,0.1)' },
-              }}
-            >
-              <ToggleButton value="all">All</ToggleButton>
-              <ToggleButton value="exact">Exact only</ToggleButton>
-              <ToggleButton value="zero">0 pts</ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-          <TableContainer sx={{ borderRadius: 1, border: '1px solid rgba(255,255,255,0.08)' }}>
-            <Table size="small">
-              <TableHead sx={{ bgcolor: 'rgba(0,0,0,0.3)' }}>
-                <TableRow>
-                  <TableCell sx={{ color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem' }}>Matchday</TableCell>
-                  <TableCell sx={{ color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem' }}>Date</TableCell>
-                  <TableCell sx={{ color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem' }}>FT Goals</TableCell>
-                  <TableCell sx={{ color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem' }}>Total</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredHistory.map((row) => {
-                  const diff = row.actual_total_goals != null ? row.predicted_total_goals - row.actual_total_goals : null;
-                  const pts = row.points ?? 0;
-                  return (
-                    <TableRow key={row.id} sx={{ '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' } }}>
-                      <TableCell sx={{ color: '#fff', fontWeight: 600 }}>
-                        {row.matchdayLabel}
-                        {row.isExact && <FavoriteIcon sx={{ fontSize: '0.9rem', color: '#ec4899', ml: 0.5, verticalAlign: 'middle' }} />}
-                      </TableCell>
-                      <TableCell sx={{ color: '#9ca3af' }}>{new Date(row.match_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</TableCell>
-                      <TableCell sx={{ color: '#e5e7eb' }}>
-                        {row.predicted_total_goals}
-                        {row.actual_total_goals != null && (
-                          <Typography component="span" sx={{ color: row.isExact ? '#16a34a' : '#9ca3af', fontSize: '0.8rem', ml: 0.5 }}>
-                            {row.isExact ? '(Exact)' : diff != null && diff !== 0 ? `(${diff > 0 ? '+' : ''}${diff})` : ''}
-                          </Typography>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Typography sx={{ color: pts > 0 ? '#16a34a' : '#f97316', fontWeight: 700 }}>
-                          {pts > 0 ? `+${pts}` : pts}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', textAlign: 'center', mt: 2 }}>
-            Click any row to see full breakdown per game type
-          </Typography>
-        </CardContent>
-      </Card>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        {[{ label: 'Matchday Played', value: matchdaysPlayed, icon: <InsightsIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }, { label: 'Exact Hits', value: exactCount, icon: <EmojiEventsIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }, { label: 'Exact Hit Rate', value: `${accuracy}%`, icon: <PercentIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }, { label: 'Consecutive Streak', value: `${bestStreak} Matches`, icon: <WhatshotIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }].map((k) => (
+          <Grid item xs={12} sm={6} md={3} key={k.label}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Stack direction="row" justifyContent="space-between"><Typography sx={{ color: '#22c55e', fontSize: '0.75rem', fontWeight: 800 }}>+4%</Typography>{k.icon}</Stack><Typography sx={{ color: '#fff', fontSize: '1.65rem', fontWeight: 800 }}>{k.value}</Typography><Typography sx={{ color: '#9ca3af', fontSize: '0.76rem' }}>{k.label}</Typography></CardContent></Card></Grid>
+        ))}
+      </Grid>
+
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        <Grid item xs={12} md={4}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Prediction Breakdown</Typography>{[{ l: 'EXACT HITS', c: exactCount, r: exactRate, col: '#22c55e' }, { l: 'CLOSE HITS', c: close, r: closeRate, col: '#eab308' }, { l: 'MISSES', c: miss, r: missRate, col: '#ef4444' }].map((r) => <Box key={r.l} sx={{ mb: 1 }}><Stack direction="row" justifyContent="space-between"><Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>{r.l}</Typography><Typography sx={{ color: '#d1d5db', fontSize: '0.72rem' }}>{r.c} ({r.r}%)</Typography></Stack><LinearProgress variant="determinate" value={r.r} sx={{ height: 6, borderRadius: 999, mt: 0.4, backgroundColor: 'rgba(255,255,255,0.07)', '& .MuiLinearProgress-bar': { backgroundColor: r.col } }} /></Box>)}</CardContent></Card></Grid>
+        <Grid item xs={12} md={4}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Outcome Accuracy</Typography>{[{ l: 'EXACT ACCURACY', v: exactRate, c: '#22c55e' }, { l: 'CLOSE ACCURACY', v: closeRate, c: '#eab308' }, { l: 'MISS ACCURACY', v: missRate, c: '#3b82f6' }].map((r) => <Box key={r.l} sx={{ mb: 1.1 }}><Stack direction="row" justifyContent="space-between"><Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>{r.l}</Typography><Typography sx={{ color: '#d1d5db', fontSize: '0.72rem' }}>{r.v}%</Typography></Stack><LinearProgress variant="determinate" value={r.v} sx={{ height: 6, borderRadius: 999, mt: 0.4, backgroundColor: 'rgba(255,255,255,0.07)', '& .MuiLinearProgress-bar': { backgroundColor: r.c } }} /></Box>)}</CardContent></Card></Grid>
+        <Grid item xs={12} md={4}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Performance Highlights</Typography><Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>Average Score</Typography><Typography sx={{ color: '#fff', fontSize: '1.4rem', fontWeight: 800 }}>{avg}</Typography><Box sx={{ p: 1, borderRadius: 1.5, mt: 1, backgroundColor: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.35)' }}><Typography sx={{ color: '#6b7280', fontSize: '0.66rem' }}>BEST MATCHDAY</Typography><Typography sx={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 700 }}>{best ? `${best.matchdayLabel} (${best.points ?? 0} pts)` : '-'}</Typography></Box><Box sx={{ p: 1, borderRadius: 1.5, mt: 1, backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)' }}><Typography sx={{ color: '#6b7280', fontSize: '0.66rem' }}>WORST MATCHDAY</Typography><Typography sx={{ color: '#fca5a5', fontSize: '0.8rem', fontWeight: 700 }}>{worst ? `${worst.matchdayLabel} (${worst.points ?? 0} pts)` : '-'}</Typography></Box></CardContent></Card></Grid>
+      </Grid>
+
+      <Card sx={{ ...cardSx, mb: 2 }}><CardContent sx={{ p: 2 }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1 }}>
+          <Typography sx={{ color: '#fff', fontWeight: 800 }}>Prediction History</Typography>
+          <ToggleButtonGroup
+            value={historyFilter}
+            exclusive
+            onChange={(_e, v: HistoryFilter | null) => v && setHistoryFilter(v)}
+            size="small"
+            sx={{
+              p: 0.4,
+              gap: 0.6,
+              borderRadius: 999,
+              backgroundColor: 'rgba(255,255,255,0.03)',
+              '& .MuiToggleButton-root': {
+                px: 1.35,
+                py: 0.45,
+                minHeight: 30,
+                color: '#d1d5db',
+                backgroundColor: 'rgba(30,35,48,0.9)',
+                border: '1px solid rgba(255,255,255,0.16)',
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: '0.74rem',
+                letterSpacing: '0.01em',
+                borderRadius: '999px !important',
+                '&:hover': {
+                  backgroundColor: 'rgba(59,130,246,0.14)',
+                  borderColor: 'rgba(59,130,246,0.5)',
+                },
+              },
+              '& .MuiToggleButton-root.Mui-selected': {
+                color: '#fff',
+                borderColor: 'rgba(22,163,74,0.75)',
+                backgroundColor: '#16a34a',
+                boxShadow: '0 0 0 1px rgba(22,163,74,0.2) inset',
+              },
+              '& .MuiToggleButton-root.Mui-selected:hover': {
+                backgroundColor: '#15803d',
+              },
+            }}
+          >
+            <ToggleButton value="all">All</ToggleButton>
+            <ToggleButton value="exact">Exact only</ToggleButton>
+            <ToggleButton value="last5">Last 5</ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
+        <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <Table size="small"><TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}><TableRow><TableCell>Matchday</TableCell><TableCell>Fixture</TableCell><TableCell>Prediction</TableCell><TableCell>Result</TableCell><TableCell>Points</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{paged.map((r) => { const status = r.actual_total_goals == null ? 'PENDING' : (r.points ?? 0) === 10 ? 'EXACT' : (r.points ?? 0) > 0 ? 'CLOSE' : 'MISS'; const sx = status === 'EXACT' ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' } : status === 'CLOSE' ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' } : status === 'MISS' ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' } : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' }; return <TableRow key={r.id}><TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell><TableCell sx={{ color: '#d1d5db' }}>Matchday Fixture</TableCell><TableCell sx={{ color: '#fff' }}>{r.predicted_total_goals}</TableCell><TableCell sx={{ color: '#9ca3af' }}>{r.actual_total_goals ?? '-'}</TableCell><TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{r.points ?? '-'}</TableCell><TableCell><Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} /></TableCell></TableRow>; })}</TableBody></Table>
+        </TableContainer>
+        <Stack direction="row" justifyContent="flex-end" spacing={0.6} sx={{ mt: 1.2 }}>{Array.from({ length: pages }).map((_, i) => <Button key={i} size="small" onClick={() => setPage(i)} sx={{ minWidth: 28, color: i === page ? '#fff' : '#9ca3af', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: i === page ? '#16a34a' : 'transparent' }}>{i + 1}</Button>)}</Stack>
+      </CardContent></Card>
+
+      <Card sx={cardSx}><CardContent sx={{ p: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+          <Typography sx={{ color: '#fff', fontWeight: 800 }}>Achievement Badges</Typography>
+        </Stack>
+        <Grid container spacing={1.2}>{allBadgeTypes.map((b) => { const unlocked = earnedBadges.includes(b); const info = BADGE_INFO[b]; return <Grid item xs={6} sm={4} md={3} key={b}><Box sx={{ p: 1.1, borderRadius: 2, border: unlocked ? '1px solid rgba(22,163,74,0.42)' : '1px solid rgba(255,255,255,0.08)', backgroundColor: unlocked ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.02)', opacity: unlocked ? 1 : 0.45 }}><Stack direction="row" spacing={1} alignItems="center"><Box sx={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: unlocked ? 'rgba(22,163,74,0.22)' : 'rgba(107,114,128,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{unlocked ? <EmojiEventsIcon sx={{ color: '#4ade80', fontSize: '1rem' }} /> : <LockIcon sx={{ color: '#6b7280', fontSize: '0.95rem' }} />}</Box><Typography sx={{ color: '#fff', fontSize: '0.74rem', fontWeight: 700 }}>{info?.label ?? b}</Typography></Stack></Box></Grid>; })}</Grid>
+      </CardContent></Card>
     </Box>
   );
 }

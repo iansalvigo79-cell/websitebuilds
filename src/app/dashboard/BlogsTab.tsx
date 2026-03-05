@@ -2,7 +2,7 @@
 
 import {
   Box, Typography, Card, CardContent, Grid, Stack, Chip,
-  ToggleButton, ToggleButtonGroup, Avatar, Dialog, DialogTitle, DialogContent, IconButton, CircularProgress,
+  ToggleButton, ToggleButtonGroup, Avatar, Dialog, DialogTitle, DialogContent, IconButton,
 } from '@mui/material';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
@@ -10,6 +10,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CloseIcon from '@mui/icons-material/Close';
 import { useState, useEffect } from 'react';
 import { Blog, BlogCategory } from '@/types/database';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 type BlogFilter = 'all' | 'strategy' | 'preview' | 'analysis';
 
@@ -139,9 +140,11 @@ export default function BlogsTab() {
 
       {/* Loading State */}
       {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-          <CircularProgress sx={{ color: '#3b82f6' }} />
-        </Box>
+        <ModernLoader
+          label="Loading Blogs"
+          sublabel="Fetching latest posts..."
+          minHeight={400}
+        />
       ) : filteredBlogs.length > 0 ? (
         <>
           {/* Blog Cards Grid */}
@@ -285,9 +288,11 @@ export default function BlogsTab() {
             </DialogTitle>
             <DialogContent dividers sx={{ maxHeight: '70vh', overflow: 'auto' }}>
               {isBlogDetailLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                  <CircularProgress sx={{ color: '#3b82f6' }} />
-                </Box>
+                <ModernLoader
+                  label="Loading Article"
+                  sublabel="Opening blog details..."
+                  minHeight={220}
+                />
               ) : selectedBlog && (
                 <Stack spacing={2}>
                   {/* Blog Header Info */}

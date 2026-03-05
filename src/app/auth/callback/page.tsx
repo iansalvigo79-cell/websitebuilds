@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 /**
  * Handles Supabase auth redirect (magic link, password recovery).
@@ -52,8 +53,11 @@ export default function AuthCallbackPage() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a' }}>
-      <CircularProgress sx={{ color: '#16a34a' }} />
-    </Box>
+    <ModernLoader
+      label="Signing You In"
+      sublabel="Completing secure authentication..."
+      minHeight="100vh"
+      sx={{ backgroundColor: '#0a0a0a' }}
+    />
   );
 }

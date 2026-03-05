@@ -1,12 +1,13 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack, CircularProgress } from '@mui/material';
+import { Box, Button, Container, TextField, Typography, Stack } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 export default function SignInPage() {
   const router = useRouter();
@@ -266,7 +267,7 @@ export default function SignInPage() {
               type="submit"
               variant="contained"
               size="large"
-              endIcon={isLoading ? <CircularProgress size={20} sx={{ color: '#0f0505' }} /> : <ArrowForwardIcon />}
+              endIcon={isLoading ? <ModernLoader inline size={20} label="" sublabel="" /> : <ArrowForwardIcon />}
               disabled={isLoading}
               sx={{
                 backgroundColor: isLoading ? '#666' : '#16a34a',

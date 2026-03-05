@@ -12,7 +12,6 @@ import {
   TextField,
   Chip,
   Grid,
-  CircularProgress,
 } from '@mui/material';
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -24,6 +23,7 @@ import { MatchDay } from '@/types/database';
 import { isMatchDayLocked, isAfterCutoff, getMatchDayStatus } from '@/lib/predictionRules';
 import { formatUKTime } from '@/lib/timezoneUtils';
 import Link from 'next/link';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 interface GameRow {
   id: string;
@@ -434,9 +434,11 @@ function PredictionsContent() {
                 Select Match Day
               </Typography>
               {isLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                  <CircularProgress sx={{ color: '#16a34a' }} />
-                </Box>
+                <ModernLoader
+                  label="Loading Matchdays"
+                  sublabel="Syncing available fixtures..."
+                  minHeight={220}
+                />
               ) : (
                 <Stack spacing={1}>
                   {matchDays.map((md) => {
@@ -622,9 +624,12 @@ export default function PredictionsPage() {
   return (
     <Suspense
       fallback={
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', backgroundColor: '#24262F' }}>
-          <CircularProgress sx={{ color: '#16a34a' }} />
-        </Box>
+        <ModernLoader
+          label="Loading Predictions"
+          sublabel="Preparing matchday data..."
+          minHeight="100vh"
+          sx={{ backgroundColor: '#24262F' }}
+        />
       }
     >
       <PredictionsContent />

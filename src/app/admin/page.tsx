@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, CircularProgress, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -13,6 +13,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -139,7 +140,7 @@ export default function AdminPage() {
         id: md.id,
         match_date: md.match_date,
         actual_total_goals: md.actual_total_goals,
-        season_name: md.seasons?.name ?? '—',
+        season_name: md.seasons?.name ?? '-',
       }));
       setMatchDaysForScores(rows);
       setActualGoalsInputs((prev) => {
@@ -193,7 +194,7 @@ export default function AdminPage() {
           match_date: md.match_date,
           cutoff_at: md.cutoff_at,
           season_id: md.season_id,
-          season_name: md.seasons?.name ?? '—',
+          season_name: md.seasons?.name ?? '-',
         })));
       }
     } finally {
@@ -267,7 +268,7 @@ export default function AdminPage() {
       setAvailableMatchDays((data || []).map((md: any) => ({
         id: md.id,
         match_date: md.match_date,
-        season_name: md.seasons?.name ?? '—',
+        season_name: md.seasons?.name ?? '-',
       })));
     }
   }, []);
@@ -298,7 +299,7 @@ export default function AdminPage() {
         setPrizesList([]);
         return;
       }
-      const res = await fetch('/api/admin/prizes', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch('/api/admin/prizes', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(data.prizes)) {
         setPrizesList(data.prizes);
@@ -307,7 +308,7 @@ export default function AdminPage() {
           const { data: profiles } = await supabase.from('profiles').select('id, display_name').in('id', userIds);
           const names: Record<string, string> = {};
           (profiles || []).forEach((p: { id: string; display_name: string | null }) => {
-            names[p.id] = p.display_name || p.id.slice(0, 8) + '…';
+            names[p.id] = p.display_name || p.id.slice(0, 8) + '...';
           });
           setWinnerNames(names);
         }
@@ -570,9 +571,12 @@ export default function AdminPage() {
 
   if (isLoading) {
     return (
-      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a' }}>
-        <CircularProgress sx={{ color: '#16a34a' }} />
-      </Box>
+      <ModernLoader
+        label="Loading Admin Panel"
+        sublabel="Checking admin access..."
+        minHeight="100vh"
+        sx={{ backgroundColor: '#0a0a0a' }}
+      />
     );
   }
 
@@ -656,9 +660,11 @@ export default function AdminPage() {
               </Button>
             </Box>
             {seasonsLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress sx={{ color: '#16a34a' }} />
-              </Box>
+              <ModernLoader
+                label="Loading Seasons"
+                sublabel="Fetching season records..."
+                minHeight={220}
+              />
             ) : seasons.length === 0 ? (
               <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
                 <Typography sx={{ color: '#64748b' }}>No seasons yet. Create one to get started.</Typography>
@@ -731,9 +737,11 @@ export default function AdminPage() {
               </Button>
             </Box>
             {matchDaysLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress sx={{ color: '#16a34a' }} />
-              </Box>
+              <ModernLoader
+                label="Loading Matchdays"
+                sublabel="Fetching matchday records..."
+                minHeight={220}
+              />
             ) : matchDaysList.length === 0 ? (
               <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
                 <Typography sx={{ color: '#64748b' }}>No match days found. Create one to get started.</Typography>
@@ -754,7 +762,7 @@ export default function AdminPage() {
                       <TableRow key={md.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{md.match_date}</TableCell>
                         <TableCell>{md.season_name}</TableCell>
-                        <TableCell>{md.cutoff_at ? new Date(md.cutoff_at).toLocaleString('en-GB') : '—'}</TableCell>
+                        <TableCell>{md.cutoff_at ? new Date(md.cutoff_at).toLocaleString('en-GB') : '-'}</TableCell>
                         <TableCell align="right">
                           {md.cutoff_at ? (
                             <Chip
@@ -801,7 +809,7 @@ export default function AdminPage() {
             }}>
               {/* Accent line */}
               <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: 'linear-gradient(90deg, #8b5cf6, #06b6d4, #10b981)' }} />
-              <Typography sx={{ color: '#e0e7ff', fontWeight: 800, mb: 2, fontSize: '1.2rem', letterSpacing: '0.5px' }}>✨ Create New Game</Typography>
+              <Typography sx={{ color: '#e0e7ff', fontWeight: 800, mb: 2, fontSize: '1.2rem', letterSpacing: '0.5px' }}>Create New Game</Typography>
               <Typography sx={{ color: '#a78bfa', fontSize: '0.85rem', mb: 3 }}>Add a new match to the schedule</Typography>
               <Stack spacing={2.5}>
                 <TextField
@@ -827,7 +835,7 @@ export default function AdminPage() {
                 >
                   {availableMatchDays.map((md) => (
                     <MenuItem key={md.id} value={md.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
-                      {md.season_name} — {md.match_date}
+                      {md.season_name} - {md.match_date}
                     </MenuItem>
                   ))}
                 </TextField>
@@ -962,14 +970,16 @@ export default function AdminPage() {
                     '&:disabled': { opacity: 0.6, transform: 'none' }
                   }}
                 >
-                  {creatingGame ? '⏳ Creating…' : '🎮 Create Game'}
+                  {creatingGame ? 'Creating...' : 'Create Game'}
                 </Button>
               </Stack>
             </Box>
             {gamesLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress sx={{ color: '#16a34a' }} />
-              </Box>
+              <ModernLoader
+                label="Loading Games"
+                sublabel="Fetching fixture data..."
+                minHeight={220}
+              />
             ) : gamesList.length === 0 ? (
               <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
                 <Typography sx={{ color: '#64748b' }}>No games found.</Typography>
@@ -990,12 +1000,12 @@ export default function AdminPage() {
                       <TableRow key={g.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{g.home_team_name}</TableCell>
                         <TableCell>{g.away_team_name}</TableCell>
-                        <TableCell>{g.kickoff_at ? new Date(g.kickoff_at).toLocaleString('en-GB') : '—'}</TableCell>
+                        <TableCell>{g.kickoff_at ? new Date(g.kickoff_at).toLocaleString('en-GB') : '-'}</TableCell>
                         <TableCell align="right">
                           {g.home_goals != null && g.away_goals != null ? (
-                            <Box sx={{ fontWeight: 700, color: '#16a34a' }}>{g.home_goals} – {g.away_goals}</Box>
+                            <Box sx={{ fontWeight: 700, color: '#16a34a' }}>{g.home_goals} - {g.away_goals}</Box>
                           ) : (
-                            <Typography sx={{ color: '#64748b' }}>—</Typography>
+                            <Typography sx={{ color: '#64748b' }}>-</Typography>
                           )}
                         </TableCell>
                       </TableRow>
@@ -1020,9 +1030,11 @@ export default function AdminPage() {
 
             {/* Scores Table */}
             {scoresLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress sx={{ color: '#16a34a' }} />
-              </Box>
+              <ModernLoader
+                label="Loading Scores"
+                sublabel="Fetching score rows..."
+                minHeight={220}
+              />
             ) : matchDaysForScores.length === 0 ? (
               <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center', mb: 3 }}>
                 <Typography sx={{ color: '#64748b' }}>No match days found. Create match days first.</Typography>
@@ -1061,11 +1073,11 @@ export default function AdminPage() {
                               disabled={savingId === md.id}
                               sx={{ color: '#16a34a', textTransform: 'none', fontWeight: 600, fontSize: '0.85rem' }}
                             >
-                              {savingId === md.id ? 'Saving…' : 'Save'}
+                              {savingId === md.id ? 'Saving...' : 'Save'}
                             </Button>
                             <Button
                               size="small"
-                              startIcon={computingId === md.id ? <CircularProgress size={14} sx={{ color: '#f59e0b' }} /> : <SportsScoreIcon />}
+                              startIcon={computingId === md.id ? <ModernLoader inline size={16} label="" sublabel="" /> : <SportsScoreIcon />}
                               onClick={() => handleComputeFromGames(md.id)}
                               disabled={computingId === md.id}
                               sx={{ color: '#f59e0b', textTransform: 'none', fontWeight: 600, fontSize: '0.85rem' }}
@@ -1091,7 +1103,7 @@ export default function AdminPage() {
               </Typography>
               <Button
                 variant="contained"
-                startIcon={isCalculatingPoints ? <CircularProgress size={20} sx={{ color: '#fff' }} /> : <CalculateIcon />}
+                startIcon={isCalculatingPoints ? <ModernLoader inline size={18} label="" sublabel="" /> : <CalculateIcon />}
                 disabled={isCalculatingPoints}
                 onClick={async () => {
                   setIsCalculatingPoints(true);
@@ -1126,7 +1138,7 @@ export default function AdminPage() {
                   '&:hover': { backgroundColor: '#15803d' },
                 }}
               >
-                {isCalculatingPoints ? 'Calculating…' : 'Calculate Points for All Match Days'}
+                {isCalculatingPoints ? 'Calculating...' : 'Calculate Points for All Match Days'}
               </Button>
             </Box>
           </Box>
@@ -1225,25 +1237,25 @@ export default function AdminPage() {
                     }}
                     sx={{ borderColor: '#06b6d4', color: '#06b6d4', textTransform: 'none', fontWeight: 700, '&:hover': { backgroundColor: 'rgba(6, 182, 212, 0.15)', borderColor: '#06b6d4' } }}
                   >
-                    {suggestingWinner ? '⏳ Loading…' : '✨ Suggest Winner'}
+                    {suggestingWinner ? 'Loading..' : 'Suggest Winner'}
                   </Button>
                 </Stack>
                 {prizeForm.suggested_name && (
                   <Box sx={{ p: 2.5, backgroundColor: 'rgba(6, 182, 212, 0.15)', borderRadius: 2, border: '1px solid rgba(6, 182, 212, 0.4)' }}>
                     <Typography sx={{ color: '#06b6d4', fontWeight: 700, fontSize: '0.95rem' }}>
-                      ✓ Suggested: {prizeForm.suggested_name}
+                      Suggested: {prizeForm.suggested_name}
                     </Typography>
                   </Box>
                 )}
                 {suggestNoPredictionsMessage && (
                   <Typography sx={{ color: '#f97316', fontSize: '0.9rem', fontWeight: 600 }}>
-                    ⚠ {suggestNoPredictionsMessage}
+                    {suggestNoPredictionsMessage}
                   </Typography>
                 )}
                 <TextField
                   size="small"
                   label="Prize Description"
-                  placeholder="e.g. Amazon £20 gift card"
+                  placeholder="e.g. Amazon GBP20 gift card"
                   value={prizeForm.prize_description}
                   onChange={(e) => setPrizeForm((p) => ({ ...p, prize_description: e.target.value }))}
                   fullWidth
@@ -1301,7 +1313,7 @@ export default function AdminPage() {
                     '&:disabled': { opacity: 0.6, transform: 'none' }
                   }}
                 >
-                  {creatingPrize ? '⏳ Creating…' : '🏆 Create Prize'}
+                  {creatingPrize ? 'Creating...' : 'Create Prize'}
                 </Button>
               </Stack>
             </Box>
@@ -1310,9 +1322,11 @@ export default function AdminPage() {
             <Box>
               <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 2 }}>All Prize Competitions</Typography>
               {prizesLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                  <CircularProgress sx={{ color: '#16a34a' }} />
-                </Box>
+                <ModernLoader
+                  label="Loading Prizes"
+                  sublabel="Fetching prize competitions..."
+                  minHeight={220}
+                />
               ) : prizesList.length === 0 ? (
                 <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
                   <Typography sx={{ color: '#64748b' }}>No prizes yet. Create one above to get started.</Typography>
@@ -1341,8 +1355,8 @@ export default function AdminPage() {
                             />
                           </TableCell>
                           <TableCell sx={{ fontWeight: 500 }}>{p.period}</TableCell>
-                          <TableCell>{winnerNames[p.winner_user_id] ?? p.winner_user_id.slice(0, 8) + '…'}</TableCell>
-                          <TableCell sx={{ maxWidth: 200, fontSize: '0.9rem' }}>{p.prize_description || '—'}</TableCell>
+                          <TableCell>{(p as Prize & { winner_display_name?: string | null }).winner_display_name || winnerNames[p.winner_user_id] || p.winner_user_id.slice(0, 8) + '...'}</TableCell>
+                          <TableCell sx={{ maxWidth: 200, fontSize: '0.9rem' }}>{p.prize_description || ''}</TableCell>
                           <TableCell>
                             {p.status === 'awarded' ? (
                               <Chip size="small" icon={<CheckCircleIcon />} label="Awarded" sx={{ backgroundColor: 'rgba(22, 163, 74, 0.25)', color: '#16a34a', fontWeight: 600 }} />
@@ -1382,7 +1396,7 @@ export default function AdminPage() {
                                   }}
                                   sx={{ color: '#16a34a', textTransform: 'none', fontWeight: 600 }}
                                 >
-                                  {awardingId === p.id ? '…' : 'Award'}
+                                  {awardingId === p.id ? '...' : 'Award'}
                                 </Button>
                                 <Tooltip title="Delete this prize entry">
                                   <Button
@@ -1466,9 +1480,11 @@ export default function AdminPage() {
             </Box>
 
             {blogsLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                <CircularProgress sx={{ color: '#16a34a' }} />
-              </Box>
+              <ModernLoader
+                label="Loading Blogs"
+                sublabel="Fetching admin blog list..."
+                minHeight={220}
+              />
             ) : blogsList.length === 0 ? (
               <Box sx={{ p: 3, backgroundColor: 'rgba(100, 116, 139, 0.1)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)', textAlign: 'center' }}>
                 <Typography sx={{ color: '#64748b' }}>No blogs yet. Create one to get started.</Typography>
@@ -1614,7 +1630,7 @@ export default function AdminPage() {
               >
                 {seasons.map((s) => (
                   <MenuItem key={s.id} value={s.id} sx={{ color: '#0f172a' }}>
-                    {s.name} ({s.start_date} → {s.end_date})
+                    {s.name} ({s.start_date} to {s.end_date})
                   </MenuItem>
                 ))}
               </TextField>
@@ -1753,7 +1769,7 @@ export default function AdminPage() {
               />
               <Box>
                 <Chip
-                  label={blogForm.is_published ? '✓ Published' : '○ Draft'}
+                  label={blogForm.is_published ? 'Published' : 'Draft'}
                   onClick={() => setBlogForm({ ...blogForm, is_published: !blogForm.is_published })}
                   sx={{
                     backgroundColor: blogForm.is_published ? 'rgba(22, 163, 74, 0.25)' : 'rgba(100, 116, 139, 0.25)',
@@ -1785,3 +1801,5 @@ export default function AdminPage() {
     </Box>
   );
 }
+
+

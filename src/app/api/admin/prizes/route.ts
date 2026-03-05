@@ -20,7 +20,28 @@ export async function GET() {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ prizes: data || [] });
+
+  const prizes = data || [];
+  const winnerIds = [...new Set(prizes.map((p: { winner_user_id: string }) => p.winner_user_id).filter(Boolean))];
+  const winnerNames: Record<string, string> = {};
+
+  if (winnerIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', winnerIds);
+    (profiles || []).forEach((p: { id: string; display_name: string | null }) => {
+      const trimmed = p.display_name?.trim();
+      winnerNames[p.id] = trimmed && trimmed.length > 0 ? trimmed : p.id.slice(0, 8) + '...';
+    });
+  }
+
+  const withNames = prizes.map((prize: any) => ({
+    ...prize,
+    winner_display_name: winnerNames[prize.winner_user_id] ?? prize.winner_user_id.slice(0, 8) + '...',
+  }));
+
+  return NextResponse.json({ prizes: withNames });
 }
 
 /**

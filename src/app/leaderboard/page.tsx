@@ -1,10 +1,11 @@
 "use client";
 
-import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Card, CircularProgress } from '@mui/material';
+import { Box, Container, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Card } from '@mui/material';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { LeaderboardEntry } from '@/types/database';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -121,9 +122,11 @@ export default function LeaderboardPage() {
         </Box>
 
         {isLoading ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 8 }}>
-              <CircularProgress sx={{ color: '#16a34a' }} />
-            </Box>
+            <ModernLoader
+              label="Loading Leaderboard"
+              sublabel="Calculating latest rankings..."
+              minHeight={320}
+            />
         ) : leaderboard.length === 0 ? (
             <Typography sx={{ color: '#16a34a', textAlign: 'center', py: 4, fontSize: '1rem' }}>
             No predictions scored yet. Check back soon!

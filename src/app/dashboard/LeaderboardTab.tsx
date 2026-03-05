@@ -11,7 +11,6 @@ import {
   TableRow,
   Tabs,
   Tab,
-  CircularProgress,
   Chip,
 } from '@mui/material';
 import { useEffect, useState, useCallback } from 'react';
@@ -22,6 +21,7 @@ import LockIcon from '@mui/icons-material/Lock';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import { getMatchDayStatus } from '@/lib/predictionRules';
 import { calculatePoints } from '@/lib/pointsCalculator';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 export type LeaderboardPeriod = 'seasonal' | 'weekly' | 'monthly' | 'matchday';
 
@@ -461,9 +461,11 @@ export default function LeaderboardTab() {
       {period === 'matchday' && selectedMatchDayId && (
         <>
           {matchdayLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-              <CircularProgress sx={{ color: '#60a5fa' }} />
-            </Box>
+            <ModernLoader
+              label="Loading Matchday Leaderboard"
+              sublabel="Calculating ranks and points..."
+              minHeight={240}
+            />
           ) : selectedMd?.status === 'upcoming' ? (
             <Box sx={{ backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 3, p: 6, textAlign: 'center', border: '1px solid rgba(255,255,255,0.08)' }}>
               <LockIcon sx={{ fontSize: 64, color: '#6b7280', mb: 2 }} />
@@ -577,9 +579,11 @@ export default function LeaderboardTab() {
       {period !== 'matchday' && (
         <>
           {isLoading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-              <CircularProgress sx={{ color: '#60a5fa' }} />
-            </Box>
+            <ModernLoader
+              label="Loading Leaderboard"
+              sublabel="Aggregating score data..."
+              minHeight={280}
+            />
           ) : leaderboard.length === 0 ? (
             <Typography sx={{ color: '#9ca3af', textAlign: 'center', py: 6 }}>
               No predictions in this period yet. Make predictions or run &quot;Calculate points&quot; in Admin → Scores.

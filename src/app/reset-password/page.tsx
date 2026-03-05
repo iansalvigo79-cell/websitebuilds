@@ -1,11 +1,12 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack, CircularProgress } from '@mui/material';
+import { Box, Button, Container, TextField, Typography, Stack } from '@mui/material';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -106,7 +107,7 @@ export default function ResetPasswordPage() {
                 '&:hover': { backgroundColor: '#137f2d' },
               }}
             >
-              {isLoading ? <CircularProgress size={24} sx={{ color: '#0f0505' }} /> : 'Update password'}
+              {isLoading ? <ModernLoader inline size={22} label="" sublabel="" /> : 'Update password'}
             </Button>
             <Button component={Link} href="/signin" sx={{ color: '#999', textTransform: 'none' }}>
               ← Back to Sign in

@@ -1,12 +1,13 @@
 "use client";
 
-import { Box, Container, Typography, Stack, Button, Card, CardContent, CircularProgress } from '@mui/material';
+import { Box, Container, Typography, Stack, Button, Card, CardContent } from '@mui/material';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Profile } from '@/types/database';
 import CheckIcon from '@mui/icons-material/Check';
 import { toast } from 'react-toastify';
+import ModernLoader from '@/components/ui/ModernLoader';
 
 // ── Separate component for useSearchParams ────────────────────────────────────
 // Must be isolated so it can be wrapped in its own <Suspense>
@@ -152,9 +153,12 @@ function PaywallContent() {
 
   if (isCheckingProfile) {
     return (
-      <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a' }}>
-        <CircularProgress sx={{ color: '#16a34a' }} />
-      </Box>
+      <ModernLoader
+        label="Loading Subscription"
+        sublabel="Checking your account status..."
+        minHeight="100vh"
+        sx={{ backgroundColor: '#0a0a0a' }}
+      />
     );
   }
 
@@ -245,7 +249,7 @@ function PaywallContent() {
                     fullWidth
                     disabled={isLoading}
                     onClick={handleCheckout}
-                    startIcon={isLoading ? <CircularProgress size={20} sx={{ color: '#0f0505' }} /> : null}
+                    startIcon={isLoading ? <ModernLoader inline size={20} label="" sublabel="" /> : null}
                     sx={{
                       backgroundColor: '#16a34a', color: '#0f0505',
                       fontWeight: 900, fontSize: '1rem',
@@ -319,9 +323,12 @@ export default function PaywallPage() {
       {/* Main page content in its own Suspense */}
       <Suspense
         fallback={
-          <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a' }}>
-            <CircularProgress sx={{ color: '#16a34a' }} />
-          </Box>
+          <ModernLoader
+            label="Loading Paywall"
+            sublabel="Preparing subscription options..."
+            minHeight="100vh"
+            sx={{ backgroundColor: '#0a0a0a' }}
+          />
         }
       >
         <PaywallContent />

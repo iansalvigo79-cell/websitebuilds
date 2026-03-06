@@ -49,14 +49,6 @@ export default function PrizeWidget() {
 
   return (
     <Box sx={{ mb: 2 }}>
-      {userPrize && (
-        <Alert
-          severity="success"
-          sx={{ mb: 1.5, backgroundColor: 'rgba(22,163,74,0.14)', border: '1px solid rgba(22,163,74,0.5)', color: '#fff', '& .MuiAlert-message': { color: '#fff' } }}
-        >
-          <Typography sx={{ fontWeight: 700 }}>Congratulations! You won a prize.</Typography>
-        </Alert>
-      )}
       {activePrize && (
         <Card sx={{ backgroundColor: '#161a23', border: '1px solid rgba(255,255,255,0.08)' }}>
           <CardContent sx={{ p: 2 }}>

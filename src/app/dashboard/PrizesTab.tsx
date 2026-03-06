@@ -269,9 +269,6 @@ export default function PrizesTab() {
                       {userPrize.type.toUpperCase()} | {userPrize.period}
                     </Typography>
                   </Stack>
-                   <Typography sx={{ color: '#fff', fontSize: '1.18rem', fontWeight: 900, letterSpacing: '-0.01em' }}>
-                     Congratulations! You won {userPrize.prize_description || 'a prize'}.
-                   </Typography>
                    <Typography sx={{ color: '#dcfce7', fontSize: '0.78rem' }}>
                      Created {new Date(userPrize.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.
                    </Typography>

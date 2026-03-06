@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
@@ -18,7 +18,7 @@ interface PrizeWithProfile {
 
 export default function PrizeWidget() {
   const [activePrize, setActivePrize] = useState<PrizeWithProfile | null>(null);
-  const [userPrize, setUserPrize] = useState<PrizeWithProfile | null>(null);
+  // const [userPrize, setUserPrize] = useState<PrizeWithProfile | null>(null);
 
   const fetchPrizes = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -32,7 +32,7 @@ export default function PrizeWidget() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setActivePrize(data.activePrize ?? null);
-      setUserPrize(data.userPrize ?? null);
+      // setUserPrize(data.userPrize ?? null);
     }
   }, []);
 

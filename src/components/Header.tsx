@@ -88,6 +88,21 @@ export default function Header() {
     router.push('/');
   };
 
+  const handleFaqNavigation = () => {
+    handleClose();
+
+    if (pathname === '/') {
+      const faqSection = document.getElementById('faq');
+      if (faqSection) {
+        faqSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.history.replaceState(null, '', '#faq');
+        return;
+      }
+    }
+
+    router.push('/#faq');
+  };
+
   const getInitials = (name: string) => {
     return name
       .split(' ')
@@ -302,7 +317,7 @@ export default function Header() {
                     <Typography sx={{ fontSize: '0.875rem' }}>Pricing</Typography>
                   </MenuItem>
                   <MenuItem
-                    onClick={handleClose}
+                    onClick={handleFaqNavigation}
                     sx={{
                       color: '#fff',
                       py: 1,

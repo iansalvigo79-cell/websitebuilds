@@ -14,6 +14,17 @@ import Image from 'next/image';
 
 export default function Hero() {
   const router = useRouter();
+
+  const handleFaqClick = () => {
+    const faqSection = document.getElementById('faq');
+    if (faqSection) {
+      faqSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.history.replaceState(null, '', '#faq');
+      return;
+    }
+    router.push('/#faq');
+  };
+
   return (
     <Box
       className="anim-fade-up anim-stagger-parent hero-bg-pulse"
@@ -156,6 +167,7 @@ export default function Hero() {
               <Button
                 variant="contained"
                 size="large"
+                onClick={handleFaqClick}
                 sx={{
                   backgroundColor: 'transparent',
                   color: '#ffffff',

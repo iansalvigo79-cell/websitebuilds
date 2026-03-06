@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
@@ -18,7 +18,7 @@ interface PrizeWithProfile {
 
 export default function PrizeWidget() {
   const [activePrize, setActivePrize] = useState<PrizeWithProfile | null>(null);
-  const [userPrize, setUserPrize] = useState<PrizeWithProfile | null>(null);
+  // const [userPrize, setUserPrize] = useState<PrizeWithProfile | null>(null);
 
   const fetchPrizes = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -32,7 +32,7 @@ export default function PrizeWidget() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setActivePrize(data.activePrize ?? null);
-      setUserPrize(data.userPrize ?? null);
+      // setUserPrize(data.userPrize ?? null);
     }
   }, []);
 
@@ -49,14 +49,6 @@ export default function PrizeWidget() {
 
   return (
     <Box sx={{ mb: 2 }}>
-      {userPrize && (
-        <Alert
-          severity="success"
-          sx={{ mb: 1.5, backgroundColor: 'rgba(22,163,74,0.14)', border: '1px solid rgba(22,163,74,0.5)', color: '#fff', '& .MuiAlert-message': { color: '#fff' } }}
-        >
-          <Typography sx={{ fontWeight: 700 }}>Congratulations! You won a prize.</Typography>
-        </Alert>
-      )}
       {activePrize && (
         <Card sx={{ backgroundColor: '#161a23', border: '1px solid rgba(255,255,255,0.08)' }}>
           <CardContent sx={{ p: 2 }}>

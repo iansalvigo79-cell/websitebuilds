@@ -11,9 +11,36 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 
 export default function Hero() {
   const router = useRouter();
+  const [isAuthed, setIsAuthed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (active) {
+        setIsAuthed(!!user);
+      }
+    };
+
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) {
+        setIsAuthed(!!session?.user);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleFaqClick = () => {
     const faqSection = document.getElementById('faq');
@@ -117,7 +144,7 @@ export default function Hero() {
               letterSpacing: 0.5,
             }}
           >
-            The ultimate football prediction platform. Guess total goals, climb the leaderboard, and prove your ball knowledge.
+            Make smart predictions, track performance, and compete with others. Test your football knowledge, think strategically, and climb the leaderboard through skill, not luck alone.
           </Typography>
 
           {/* CTA Buttons */}
@@ -131,7 +158,7 @@ export default function Hero() {
                 variant="contained"
                 size="large"
                 endIcon={<ArrowForwardIcon />}
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push(isAuthed ? '/dashboard' : '/signin')}
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#0f0505',
@@ -156,7 +183,7 @@ export default function Hero() {
                   },
                 }}
               >
-                Start Predicting
+                {isAuthed ? 'Start Predicting' : 'Start Playing'}
               </Button>
             </motion.div>
             <motion.div

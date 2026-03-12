@@ -280,7 +280,7 @@ export default function LeaderboardTab() {
         if (data) {
           setActiveSeasonId(data.id);
           setActiveSeasonName(data.name);
-          if (period !== 'seasonal') setSeasonName(data.name);
+          setSeasonName(data.name);
         }
       });
     }

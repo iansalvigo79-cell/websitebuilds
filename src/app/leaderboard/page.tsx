@@ -39,9 +39,12 @@ export default function LeaderboardPage() {
         .select(`
           user_id,
           points,
+          ht_goals_points,
+          corners_points,
+          ht_corners_points,
           profiles!inner(team_name)
         `)
-        .not('points', 'is', null);
+        .or('points.not.is.null,ht_goals_points.not.is.null,corners_points.not.is.null,ht_corners_points.not.is.null');
 
       if (leaderboardError) {
         console.error('Supabase Leaderboard Error:', leaderboardError);
@@ -60,7 +63,11 @@ export default function LeaderboardPage() {
               predictions_count: 0,
             };
           }
-          grouped[userId].total_points += pred.points || 0;
+          grouped[userId].total_points +=
+            (pred.points || 0) +
+            (pred.ht_goals_points || 0) +
+            (pred.corners_points || 0) +
+            (pred.ht_corners_points || 0);
           grouped[userId].predictions_count += 1;
         });
 

@@ -103,45 +103,60 @@ export async function calculatePointsForMatchDays(matchDayId?: string): Promise<
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  let matchDays: { id: string; actual_total_goals: number }[];
+  let matchDays: { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
 
   if (matchDayId) {
     const { data, error } = await supabase
       .from('match_days')
-      .select('id, actual_total_goals')
+      .select('id, actual_total_goals, ht_goals, total_corners, ht_corners')
       .eq('id', matchDayId)
-      .not('actual_total_goals', 'is', null)
       .limit(1);
 
     if (error) return { ok: false, error: error.message };
-    matchDays = (data || []) as { id: string; actual_total_goals: number }[];
+    matchDays = (data || []) as { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
   } else {
     const { data, error } = await supabase
       .from('match_days')
-      .select('id, actual_total_goals')
-      .not('actual_total_goals', 'is', null);
+      .select('id, actual_total_goals, ht_goals, total_corners, ht_corners')
+      .or('actual_total_goals.not.is.null,ht_goals.not.is.null,total_corners.not.is.null,ht_corners.not.is.null');
 
     if (error) return { ok: false, error: error.message };
-    matchDays = (data || []) as { id: string; actual_total_goals: number }[];
+    matchDays = (data || []) as { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
   }
 
   let totalUpdated = 0;
 
   for (const md of matchDays) {
     const actual = md.actual_total_goals;
+    const htGoals = md.ht_goals;
+    const totalCorners = md.total_corners;
+    const htCorners = md.ht_corners;
 
     const { data: predictions, error: fetchErr } = await supabase
       .from('predictions')
-      .select('id, predicted_total_goals')
+      .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
       .eq('match_day_id', md.id);
 
     if (fetchErr) continue;
 
     for (const p of predictions || []) {
-      const points = calculatePoints(p.predicted_total_goals, actual);
+      const update: Record<string, number | null> = {};
+      if (actual != null) {
+        update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, actual) : null;
+      }
+      if (htGoals != null) {
+        update.ht_goals_points = p.predicted_ht_goals != null ? calculatePoints(p.predicted_ht_goals, htGoals) : null;
+      }
+      if (totalCorners != null) {
+        update.corners_points = p.predicted_total_corners != null ? calculatePoints(p.predicted_total_corners, totalCorners) : null;
+      }
+      if (htCorners != null) {
+        update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;
+      }
+      if (Object.keys(update).length === 0) continue;
       const { error: updateErr } = await supabase
         .from('predictions')
-        .update({ points })
+        .update(update)
         .eq('id', p.id);
 
       if (!updateErr) totalUpdated += 1;

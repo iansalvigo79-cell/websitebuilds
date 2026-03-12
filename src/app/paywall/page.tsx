@@ -167,61 +167,53 @@ function PaywallContent() {
   return (
     <Box sx={{ backgroundColor: '#0a0a0a' }}>
       <Box className="anim-fade-up" sx={{ py: 6 }}>
-        <Container maxWidth="sm">
+        <Container maxWidth="md">
           <Box sx={{ textAlign: 'center', mb: 6 }}>
-            <Typography variant="h3" sx={{ fontWeight: 900, color: '#fff', mb: 2 }}>
-              Upgrade for £5/month
-              <Box component="span" sx={{ color: '#16a34a', display: 'block' }}>
-                Unlock all four prediction games
-              </Box>
+            <Typography sx={{ fontSize: '2.5rem', mb: 1 }}>👑</Typography>
+            <Typography sx={{ fontWeight: 900, color: '#fff', fontSize: '2.5rem', mb: 1 }}>
+              UNLOCK FULL ACCESS
             </Typography>
-            <Typography sx={{ color: '#999', fontSize: '1rem' }}>
-              FT Goals · HT Goals · FT Corners · HT Corners
+            <Typography sx={{ color: '#9ca3af', fontSize: '1rem' }}>
+              Join thousands of predictors competing for prizes every matchday
             </Typography>
           </Box>
 
-          <Card sx={{ backgroundColor: '#0a0a0a', border: '2px solid #16a34a', mb: 4 }}>
-            <CardContent sx={{ p: 4 }}>
-              <Box sx={{ mb: 4, textAlign: 'center' }}>
-                <Typography variant="h4" sx={{ fontWeight: 700, color: '#fff', mb: 1 }}>
-                  Paid Player — £5 / month
-                </Typography>
-                <Typography sx={{ color: '#999' }}>
-                  Fuller, more competitive experience. Cancel anytime.
-                </Typography>
+          <Card
+            sx={{
+              backgroundColor: '#1a1d27',
+              border: '2px solid #16a34a',
+              boxShadow: '0 0 40px rgba(22,163,74,0.2)',
+              borderRadius: '16px',
+              mb: 4,
+            }}
+          >
+            <CardContent sx={{ p: { xs: 3, md: 5 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 1, mb: 3 }}>
+                <Typography sx={{ fontSize: '4rem', fontWeight: 900, color: '#fff' }}>£5</Typography>
+                <Typography sx={{ fontSize: '1.2rem', color: '#9ca3af' }}>/month</Typography>
               </Box>
 
-              <Stack spacing={2} sx={{ mb: 4 }}>
-                <Typography sx={{ color: '#16a34a', fontWeight: 700, fontSize: '0.9rem' }}>
-                  Access to all four prediction games
-                </Typography>
-                {['FT Goals', 'HT Goals', 'FT Corners', 'HT Corners'].map(game => (
-                  <Box key={game} sx={{ display: 'flex', alignItems: 'center', gap: 2, pl: 1 }}>
-                    <CheckIcon sx={{ color: '#16a34a', fontSize: 20 }} />
-                    <Typography sx={{ color: '#fff' }}>{game}</Typography>
-                  </Box>
-                ))}
+              <Stack spacing={1.5} sx={{ mb: 4 }}>
                 {[
-                  'More ways to score points and improve ranking',
-                  'Eligibility for weekly, monthly and seasonal prize competitions',
-                  'Greater depth, more strategy and more chances to stand out',
-                ].map(item => (
-                  <Box key={item} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <CheckIcon sx={{ color: '#16a34a' }} />
-                    <Typography sx={{ color: '#fff' }}>{item}</Typography>
+                  'FT Goals Predictions (Free)',
+                  'Half Time Goals Predictions',
+                  'Total Corners Predictions',
+                  'Cards Predictions',
+                  'Compete for monthly prizes',
+                  'Full leaderboard access',
+                ].map((item) => (
+                  <Box key={item} sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <CheckIcon sx={{ color: '#16a34a', fontSize: 20 }} />
+                    <Typography sx={{ color: '#fff', fontWeight: 600 }}>{item}</Typography>
                   </Box>
                 ))}
               </Stack>
-
-              <Typography sx={{ color: '#bbb', fontSize: '0.9rem', mb: 3, fontStyle: 'italic' }}>
-                Free players can enjoy the core experience. Paid players get a fuller, more competitive version of the game.
-              </Typography>
 
               {isPaid ? (
                 <Box sx={{ textAlign: 'center' }}>
                   <Typography
                     component="span"
-                    sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: '#16a34a', fontWeight: 700, fontSize: '1rem', mb: 2 }}
+                    sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: '#16a34a', fontWeight: 800, fontSize: '1rem', mb: 2 }}
                   >
                     ✅ Full Access Active
                   </Typography>
@@ -231,9 +223,12 @@ function PaywallContent() {
                       onClick={handleManageBilling}
                       disabled={isPortalLoading}
                       sx={{
-                        background: 'none', border: 'none', color: '#16a34a',
+                        background: 'none',
+                        border: 'none',
+                        color: '#16a34a',
                         cursor: isPortalLoading ? 'wait' : 'pointer',
-                        fontSize: '0.9rem', textDecoration: 'underline',
+                        fontSize: '0.9rem',
+                        textDecoration: 'underline',
                         '&:hover': { color: '#137f2d' },
                       }}
                     >
@@ -251,17 +246,25 @@ function PaywallContent() {
                     onClick={handleCheckout}
                     startIcon={isLoading ? <ModernLoader inline size={20} label="" sublabel="" /> : null}
                     sx={{
-                      backgroundColor: '#16a34a', color: '#0f0505',
-                      fontWeight: 900, fontSize: '1rem',
-                      padding: '14px 24px', textTransform: 'uppercase', letterSpacing: 1,
-                      transition: 'background-color 0.3s ease',
+                      backgroundColor: '#16a34a',
+                      color: '#000',
+                      fontWeight: 900,
+                      fontSize: '1.2rem',
+                      padding: '18px',
+                      borderRadius: '10px',
+                      textTransform: 'none',
+                      animation: 'pulse-green 2s infinite',
+                      '@keyframes pulse-green': {
+                        '0%, 100%': { boxShadow: '0 0 0 0 rgba(22,163,74,0.4)' },
+                        '50%': { boxShadow: '0 0 0 12px rgba(22,163,74,0)' },
+                      },
                       '&:hover': { backgroundColor: '#137f2d', transform: 'none' },
                     }}
                   >
-                    {isLoading ? 'Processing...' : 'Subscribe Now'}
+                    {isLoading ? 'Processing...' : 'START PREDICTING NOW →'}
                   </Button>
-                  <Typography sx={{ color: '#999', fontSize: '0.85rem', textAlign: 'center', mt: 3 }}>
-                    Secure payment powered by Stripe
+                  <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', textAlign: 'center', mt: 2 }}>
+                    Cancel anytime • Secure payment by Stripe
                   </Typography>
                 </>
               )}

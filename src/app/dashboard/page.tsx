@@ -32,6 +32,7 @@ function DashboardPageContent() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [authChecking, setAuthChecking] = useState(true);
   const [showSubscriptionSuccess, setShowSubscriptionSuccess] = useState(false);
+  const [hasOpenMatchday, setHasOpenMatchday] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -49,6 +50,64 @@ function DashboardPageContent() {
     };
     checkAuth();
   }, [router]);
+
+  useEffect(() => {
+    if (authChecking) return;
+    let isMounted = true;
+    const fetchOpenMatchday = async () => {
+      const { data: seasonData } = await supabase
+        .from('seasons')
+        .select('id')
+        .eq('is_active', true)
+        .maybeSingle();
+      if (!isMounted) return;
+      if (!seasonData?.id) {
+        setHasOpenMatchday(false);
+        return;
+      }
+      const { data: openMatchday } = await supabase
+        .from('match_days')
+        .select('id, cutoff_at')
+        .eq('season_id', seasonData.id)
+        .gt('cutoff_at', new Date().toISOString())
+        .order('match_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!isMounted) return;
+      setHasOpenMatchday(Boolean(openMatchday));
+    };
+    fetchOpenMatchday();
+    const interval = setInterval(fetchOpenMatchday, 60_000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [authChecking]);
+
+  const predictionsLabel = hasOpenMatchday ? (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box
+        sx={{
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          backgroundColor: '#16a34a',
+          boxShadow: '0 0 0 0 rgba(22,163,74,0.6)',
+          animation: 'pulse-dot 1.5s infinite',
+          '@keyframes pulse-dot': {
+            '0%': { boxShadow: '0 0 0 0 rgba(22,163,74,0.6)' },
+            '70%': { boxShadow: '0 0 0 8px rgba(22,163,74,0)' },
+            '100%': { boxShadow: '0 0 0 0 rgba(22,163,74,0)' },
+          },
+        }}
+      />
+      <Typography component="span" sx={{ color: '#16a34a', fontWeight: 800 }}>
+        My Predictions
+      </Typography>
+    </Box>
+  ) : (
+    'My Predictions'
+  );
 
   if (authChecking) {
     return (
@@ -106,7 +165,11 @@ function DashboardPageContent() {
             }}
           >
             <Tab value="dashboard" label="Dashboard" />
-            <Tab value="my-predictions" label="My Predictions" />
+            <Tab
+              value="my-predictions"
+              label={predictionsLabel}
+              sx={hasOpenMatchday ? { color: '#16a34a', '&.Mui-selected': { color: '#16a34a' } } : undefined}
+            />
             <Tab value="leaderboard" label="Leaderboard" />
             <Tab value="prizes" label="Prizes" />
             <Tab value="blogs" label="Blogs" />

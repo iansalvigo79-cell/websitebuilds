@@ -45,10 +45,14 @@ export interface Season {
 export interface MatchDay {
   id: string;
   season_id: string;
+  name?: string | null;
   match_date: string;
   cutoff_at: string;
   is_open: boolean;
   actual_total_goals: number | null;
+  ht_goals?: number | null;
+  total_corners?: number | null;
+  ht_corners?: number | null;
   created_at: string;
 }
 
@@ -57,10 +61,21 @@ export interface Game {
   match_day_id: string;
   home_team: string;
   away_team: string;
+  competition_id?: string | null;
   kickoff_at: string;
   home_goals: number | null;
   away_goals: number | null;
   is_selected: boolean;
+  created_at: string;
+}
+
+export interface Competition {
+  id: string;
+  name: string;
+  short_name: string | null;
+  country: string | null;
+  logo_url: string | null;
+  is_active: boolean;
   created_at: string;
 }
 
@@ -69,10 +84,13 @@ export interface Prediction {
   user_id: string;
   match_day_id: string;
   predicted_total_goals: number;
-  predicted_half_time_goals?: number | null;
-  predicted_ft_corners?: number | null;
+  predicted_ht_goals?: number | null;
+  predicted_total_corners?: number | null;
   predicted_ht_corners?: number | null;
   points: number | null;
+  ht_goals_points?: number | null;
+  corners_points?: number | null;
+  ht_corners_points?: number | null;
   created_at: string;
 }
 

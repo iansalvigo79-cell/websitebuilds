@@ -41,6 +41,7 @@ interface PredictionRow {
   predicted_total_goals: number;
   actual_total_goals: number | null;
   points: number | null;
+  ft_points: number | null;
   isExact: boolean;
 }
 
@@ -106,30 +107,79 @@ export default function MyPredictionsTab() {
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
 
-    const { data: profileData } = await supabase.from('profiles').select('created_at, subscription_status, account_type, display_name').eq('id', user.id).maybeSingle();
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (profileError) {
+      console.error('Supabase profile fetch error (MyPredictions):', profileError);
+    }
     if (profileData) setProfile(profileData as ProfileInfo);
 
-    const { data: seasonData } = await supabase.from('seasons').select('id, name').eq('is_active', true).maybeSingle();
+    const { data: seasonData, error: seasonError } = await supabase
+      .from('seasons')
+      .select('id, name')
+      .eq('is_active', true)
+      .maybeSingle();
+    if (seasonError) {
+      console.error('Supabase season fetch error (MyPredictions):', seasonError);
+    }
     if (seasonData) setSeasonName(seasonData.name || '');
 
-    const { data: predRows } = await supabase.from('predictions').select('id, match_day_id, predicted_total_goals, points').eq('user_id', user.id);
+    const { data: predRows, error: predError } = await supabase
+      .from('predictions')
+      .select('*')
+      .eq('user_id', user.id);
+    if (predError) {
+      console.error('Supabase predictions fetch error (MyPredictions):', predError);
+      setLoading(false);
+      return;
+    }
     const list = predRows || [];
-    const mdIds = [...new Set(list.map((p: any) => p.match_day_id))];
-    const { data: mdList } = mdIds.length ? await supabase.from('match_days').select('id, match_date, actual_total_goals, season_id').in('id', mdIds) : { data: [] };
+    const mdIds = [...new Set(list.map((p: any) => p.match_day_id).filter(Boolean))] as string[];
+    const { data: mdList, error: mdError } = mdIds.length
+      ? await supabase.from('match_days').select('*').in('id', mdIds)
+      : { data: [], error: null };
+    if (mdError) {
+      console.error('Supabase match days fetch error (MyPredictions):', mdError);
+      setLoading(false);
+      return;
+    }
     const mdMap = new Map((mdList || []).map((m: any) => [m.id, m]));
 
     let rank: number | null = null;
     const seasonId = seasonData?.id;
     if (seasonId) {
-      const { data: sDays } = await supabase.from('match_days').select('id').eq('season_id', seasonId);
+      const { data: sDays, error: sDaysError } = await supabase
+        .from('match_days')
+        .select('id')
+        .eq('season_id', seasonId);
+      if (sDaysError) {
+        console.error('Supabase season match days fetch error (MyPredictions):', sDaysError);
+      }
       const seasonMdIds = (sDays || []).map((m: any) => m.id);
       if (seasonMdIds.length) {
-        const { data: allPredData } = await supabase.from('predictions').select('user_id, points, match_day_id').in('match_day_id', seasonMdIds);
+        const { data: allPredData, error: allPredError } = await supabase
+          .from('predictions')
+          .select('*')
+          .in('match_day_id', seasonMdIds);
+        if (allPredError) {
+          console.error('Supabase season predictions fetch error (MyPredictions):', allPredError);
+        }
         const totals: Record<string, number> = {};
-        (allPredData || []).forEach((p: any) => { totals[p.user_id] = (totals[p.user_id] || 0) + (p.points ?? 0); });
+        (allPredData || []).forEach((p: any) => {
+          const totalPoints =
+            (p.points ?? 0) +
+            (p.ht_goals_points ?? 0) +
+            (p.corners_points ?? 0) +
+            (p.ht_corners_points ?? 0);
+          totals[p.user_id] = (totals[p.user_id] || 0) + totalPoints;
+        });
         const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
         const idx = ranked.findIndex(([uid]) => uid === user.id);
         rank = idx >= 0 ? idx + 1 : null;
@@ -143,20 +193,39 @@ export default function MyPredictionsTab() {
     const rows: PredictionRow[] = [];
     list.forEach((p: any) => {
       const md = mdMap.get(p.match_day_id); if (!md) return;
-      const pts = p.points ?? 0; total += pts;
-      if (new Date(md.match_date) >= start) week += pts;
-      const isExact = md.actual_total_goals != null && p.predicted_total_goals === md.actual_total_goals && pts === 10;
+      const ftPoints = p.points ?? 0;
+      const totalPoints =
+        ftPoints +
+        (p.ht_goals_points ?? 0) +
+        (p.corners_points ?? 0) +
+        (p.ht_corners_points ?? 0);
+      total += totalPoints;
+      if (new Date(md.match_date) >= start) week += totalPoints;
+      const isExact = md.actual_total_goals != null && p.predicted_total_goals === md.actual_total_goals && ftPoints === 10;
       if (isExact) exact += 1;
       rows.push({
         id: p.id, match_day_id: p.match_day_id, match_date: md.match_date, matchdayLabel: `MD ${sortedMd.indexOf(p.match_day_id) + 1}`,
-        predicted_total_goals: p.predicted_total_goals, actual_total_goals: md.actual_total_goals, points: p.points, isExact,
+        predicted_total_goals: p.predicted_total_goals,
+        actual_total_goals: md.actual_total_goals,
+        points: totalPoints,
+        ft_points: ftPoints,
+        isExact,
       });
     });
     rows.sort((a, b) => (b.match_date > a.match_date ? 1 : -1));
     setPredictions(rows); setTotalPoints(total); setThisWeekPoints(week); setExactCount(exact); setMatchdaysPlayed(rows.length);
 
     let streak = 0, max = 0;
-    sortedMd.map((id) => list.find((x: any) => x.match_day_id === id)?.points ?? 0).forEach((p) => { if (p > 0) { streak += 1; max = Math.max(max, streak); } else streak = 0; });
+    const pointsByMatchDay = new Map<string, number>();
+    list.forEach((p: any) => {
+      const totalPoints =
+        (p.points ?? 0) +
+        (p.ht_goals_points ?? 0) +
+        (p.corners_points ?? 0) +
+        (p.ht_corners_points ?? 0);
+      pointsByMatchDay.set(p.match_day_id, totalPoints);
+    });
+    sortedMd.map((id) => pointsByMatchDay.get(id) ?? 0).forEach((p) => { if (p > 0) { streak += 1; max = Math.max(max, streak); } else streak = 0; });
     setBestStreak(max);
 
     const badges: BadgeType[] = [];
@@ -166,8 +235,12 @@ export default function MyPredictionsTab() {
     if (max >= 5) badges.push('streak_5');
     if (max >= 10) badges.push('streak_10');
     if (rank === 1) badges.push('top_weekly', 'top_monthly', 'top_season');
-    setEarnedBadges(badges);
-    setLoading(false);
+      setEarnedBadges(badges);
+      setLoading(false);
+    } catch (err) {
+      console.error('MyPredictionsTab fetch error:', err);
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -349,7 +422,7 @@ export default function MyPredictionsTab() {
           </ToggleButtonGroup>
         </Stack>
         <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Table size="small"><TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}><TableRow><TableCell>Matchday</TableCell><TableCell>Fixture</TableCell><TableCell>Prediction</TableCell><TableCell>Result</TableCell><TableCell>Points</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{paged.map((r) => { const status = r.actual_total_goals == null ? 'PENDING' : (r.points ?? 0) === 10 ? 'EXACT' : (r.points ?? 0) > 0 ? 'CLOSE' : 'MISS'; const sx = status === 'EXACT' ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' } : status === 'CLOSE' ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' } : status === 'MISS' ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' } : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' }; return <TableRow key={r.id}><TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell><TableCell sx={{ color: '#d1d5db' }}>Matchday Fixture</TableCell><TableCell sx={{ color: '#fff' }}>{r.predicted_total_goals}</TableCell><TableCell sx={{ color: '#9ca3af' }}>{r.actual_total_goals ?? '-'}</TableCell><TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{r.points ?? '-'}</TableCell><TableCell><Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} /></TableCell></TableRow>; })}</TableBody></Table>
+          <Table size="small"><TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}><TableRow><TableCell>Matchday</TableCell><TableCell>Fixture</TableCell><TableCell>Prediction</TableCell><TableCell>Result</TableCell><TableCell>Points</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{paged.map((r) => { const ftPoints = r.ft_points ?? 0; const status = r.actual_total_goals == null ? 'PENDING' : ftPoints === 10 ? 'EXACT' : ftPoints > 0 ? 'CLOSE' : 'MISS'; const sx = status === 'EXACT' ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' } : status === 'CLOSE' ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' } : status === 'MISS' ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' } : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' }; return <TableRow key={r.id}><TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell><TableCell sx={{ color: '#d1d5db' }}>Matchday Fixture</TableCell><TableCell sx={{ color: '#fff' }}>{r.predicted_total_goals}</TableCell><TableCell sx={{ color: '#9ca3af' }}>{r.actual_total_goals ?? '-'}</TableCell><TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{r.points ?? '-'}</TableCell><TableCell><Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} /></TableCell></TableRow>; })}</TableBody></Table>
         </TableContainer>
         <Stack direction="row" justifyContent="flex-end" spacing={0.6} sx={{ mt: 1.2 }}>{Array.from({ length: pages }).map((_, i) => <Button key={i} size="small" onClick={() => setPage(i)} sx={{ minWidth: 28, color: i === page ? '#fff' : '#9ca3af', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: i === page ? '#16a34a' : 'transparent' }}>{i + 1}</Button>)}</Stack>
       </CardContent></Card>

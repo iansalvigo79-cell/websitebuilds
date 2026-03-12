@@ -1,19 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { calculatePoints } from '@/lib/pointsCalculator';
 
 /**
  * POST /api/admin/calculate-points
- * Body: { matchDayId?: string } — optional; if omitted, runs for all match days that have actual_total_goals set.
- * Header: x-admin-secret — optional; set to ADMIN_SECRET env to protect the endpoint.
+ * Body: { matchDayId?: string } - optional; if omitted, runs for all match days that have scores set.
+ * Header: x-admin-secret - optional; set to ADMIN_SECRET env to protect the endpoint.
  *
- * For each match day with actual_total_goals set:
+ * For each match day with scores set:
  * 1. Load all predictions for that match day.
- * 2. Compute points from predicted_total_goals vs actual_total_goals (exact=10, ±1=7, ±2=4, ±3=2, else=0).
- * 3. Update the predictions table: set the "points" column to the calculated value for each row.
+ * 2. Compute points for each game type where actual scores exist.
+ * 3. Update the predictions table with points per game type.
  */
 const SERVICE_ROLE_ERROR =
-  'Add SUPABASE_SERVICE_ROLE_KEY to .env.local (Supabase Dashboard → Project Settings → API → service_role secret). Restart the dev server after saving.';
+  'Add SUPABASE_SERVICE_ROLE_KEY to .env.local (Supabase Dashboard â†’ Project Settings â†’ API â†’ service_role secret). Restart the dev server after saving.';
 
 export async function POST(request: NextRequest) {
   const adminSecret = process.env.ADMIN_SECRET;
@@ -57,40 +57,42 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    let matchDays: { id: string; actual_total_goals: number }[];
+    let matchDays: { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
 
     if (body.matchDayId) {
       const { data, error } = await supabase
         .from('match_days')
-        .select('id, actual_total_goals')
+        .select('id, actual_total_goals, ht_goals, total_corners, ht_corners')
         .eq('id', body.matchDayId)
-        .not('actual_total_goals', 'is', null)
         .limit(1);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      matchDays = (data || []) as { id: string; actual_total_goals: number }[];
+      matchDays = (data || []) as { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
     } else {
       const { data, error } = await supabase
         .from('match_days')
-        .select('id, actual_total_goals')
-        .not('actual_total_goals', 'is', null);
+        .select('id, actual_total_goals, ht_goals, total_corners, ht_corners')
+        .or('actual_total_goals.not.is.null,ht_goals.not.is.null,total_corners.not.is.null,ht_corners.not.is.null');
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      matchDays = (data || []) as { id: string; actual_total_goals: number }[];
+      matchDays = (data || []) as { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
     }
 
     let totalUpdated = 0;
 
     for (const md of matchDays) {
       const actual = md.actual_total_goals;
+      const htGoals = md.ht_goals;
+      const totalCorners = md.total_corners;
+      const htCorners = md.ht_corners;
 
       const { data: predictions, error: fetchErr } = await supabase
         .from('predictions')
-        .select('id, predicted_total_goals')
+        .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
         .eq('match_day_id', md.id);
 
       if (fetchErr) {
@@ -99,10 +101,23 @@ export async function POST(request: NextRequest) {
       }
 
       for (const p of predictions || []) {
-        const points = calculatePoints(p.predicted_total_goals, actual);
+        const update: Record<string, number | null> = {};
+        if (actual != null) {
+          update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, actual) : null;
+        }
+        if (htGoals != null) {
+          update.ht_goals_points = p.predicted_ht_goals != null ? calculatePoints(p.predicted_ht_goals, htGoals) : null;
+        }
+        if (totalCorners != null) {
+          update.corners_points = p.predicted_total_corners != null ? calculatePoints(p.predicted_total_corners, totalCorners) : null;
+        }
+        if (htCorners != null) {
+          update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;
+        }
+        if (Object.keys(update).length === 0) continue;
         const { error: updateErr } = await supabase
           .from('predictions')
-          .update({ points })
+          .update(update)
           .eq('id', p.id);
         if (!updateErr) totalUpdated += 1;
         else console.error('Failed to update prediction', p.id, updateErr);
@@ -122,3 +137,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

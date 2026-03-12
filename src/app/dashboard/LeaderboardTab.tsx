@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   Box,
@@ -12,6 +12,9 @@ import {
   Tabs,
   Tab,
   Chip,
+  TextField,
+  MenuItem,
+  Tooltip,
 } from '@mui/material';
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -37,16 +40,20 @@ export interface LeaderboardEntry {
 
 export interface MatchDayOption {
   id: string;
+  name?: string | null;
   match_date: string;
   cutoff_at: string;
   actual_total_goals: number | null;
+  ht_goals?: number | null;
+  total_corners?: number | null;
+  ht_corners?: number | null;
   season_id: string;
   status: 'upcoming' | 'live' | 'completed';
   label: string;
 }
 
-// ── Helper: resolve display name with fallback chain ─────────────────────────
-// Never returns 'Unknown' — falls back to email prefix or 'Player'
+// -- Helper: resolve display name with fallback chain --
+// Never returns 'Unknown' -- falls back to email prefix or 'Player'
 function resolveDisplayName(display_name: string | null | undefined): string {
   if (display_name && display_name.trim() !== '') return display_name.trim();
   return 'Player';
@@ -96,6 +103,9 @@ export default function LeaderboardTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [seasonName, setSeasonName] = useState('');
   const [activeSeasonId, setActiveSeasonId] = useState<string | null>(null);
+  const [activeSeasonName, setActiveSeasonName] = useState('');
+  const [seasonOptions, setSeasonOptions] = useState<Array<{ id: string; name: string; is_active: boolean }>>([]);
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [period, setPeriod] = useState<LeaderboardPeriod>('seasonal');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [matchDays, setMatchDays] = useState<MatchDayOption[]>([]);
@@ -105,6 +115,11 @@ export default function LeaderboardTab() {
     display_name: string;
     predicted: number;
     points: number;
+    ftPoints: number;
+    htPoints: number;
+    cornersPoints: number;
+    htCornersPoints: number;
+    totalPoints: number;
     rank: number;
     diff: number;
   }>>([]);
@@ -112,6 +127,9 @@ export default function LeaderboardTab() {
     match_date: string;
     leagueName: string;
     actual: number;
+    htGoals: number | null;
+    totalCorners: number | null;
+    htCorners: number | null;
     games: { home: string; away: string; score: string }[];
   } | null>(null);
   const [matchdayLoading, setMatchdayLoading] = useState(false);
@@ -120,18 +138,16 @@ export default function LeaderboardTab() {
     if (period === 'matchday') return;
     setIsLoading(true);
     try {
-      const { data: seasonData } = await supabase
-        .from('seasons')
-        .select('id, name')
-        .eq('is_active', true)
-        .maybeSingle();
-      const activeId = seasonData?.id ?? null;
-      setActiveSeasonId(activeId);
-      if (seasonData) setSeasonName(seasonData.name);
+      const seasonFilterId = period === 'seasonal' ? (selectedSeasonId ?? activeSeasonId) : null;
+      if (period === 'seasonal' && !seasonFilterId) {
+        setLeaderboard([]);
+        setIsLoading(false);
+        return;
+      }
 
       const { data: predictionsRows, error: predError } = await supabase
         .from('predictions')
-        .select('user_id, points, match_day_id');
+        .select('*');
       if (predError || !predictionsRows?.length) {
         setLeaderboard([]);
         setIsLoading(false);
@@ -140,11 +156,11 @@ export default function LeaderboardTab() {
 
       const mdIds = [...new Set(predictionsRows.map((p: any) => p.match_day_id).filter(Boolean))];
       const { data: mdList } = mdIds.length
-        ? await supabase.from('match_days').select('id, match_date, season_id').in('id', mdIds)
+        ? await supabase.from('match_days').select('*').in('id', mdIds)
         : { data: [] };
       const mdMap = new Map((mdList || []).map((m: any) => [m.id, m]));
 
-      const userIds = [...new Set(predictionsRows.map((p: any) => p.user_id).filter(Boolean))];
+      const userIds = [...new Set(predictionsRows.map((p: any) => p.user_id).filter(Boolean))] as string[];
 
       // fetch email so we can fall back when display_name is blank
       const profileResult = userIds.length
@@ -169,7 +185,7 @@ export default function LeaderboardTab() {
       const filtered = rawData.filter((pred: any) => {
         const md = pred.match_days;
         if (!md) return false;
-        if (period === 'seasonal' && activeId) return md.season_id === activeId;
+        if (period === 'seasonal' && seasonFilterId) return md.season_id === seasonFilterId;
         if (period === 'seasonal') return true;
         return matchDateInRange(md.match_date || '', period, bounds.start, bounds.end);
       });
@@ -177,7 +193,11 @@ export default function LeaderboardTab() {
       const grouped: Record<string, { display_name: string; total_points: number; predictions_count: number; exact_count: number }> = {};
       filtered.forEach((pred: any) => {
         const userId = pred.user_id;
-        const pointsVal = pred.points != null ? pred.points : 0;
+        const pointsVal =
+          (pred.points ?? 0) +
+          (pred.ht_goals_points ?? 0) +
+          (pred.corners_points ?? 0) +
+          (pred.ht_corners_points ?? 0);
         if (!grouped[userId]) {
           const profileData = profileMap.get(userId);
           grouped[userId] = {
@@ -189,7 +209,7 @@ export default function LeaderboardTab() {
         }
         grouped[userId].total_points += pointsVal;
         grouped[userId].predictions_count += 1;
-        if (pointsVal === 10) grouped[userId].exact_count += 1;
+        if (pred.points === 10) grouped[userId].exact_count += 1;
       });
 
       const arr: LeaderboardEntry[] = Object.entries(grouped).map(([user_id, data]) => ({
@@ -208,11 +228,44 @@ export default function LeaderboardTab() {
     } finally {
       setIsLoading(false);
     }
-  }, [period]);
+  }, [period, selectedSeasonId, activeSeasonId]);
 
   useEffect(() => {
     fetchLeaderboard();
   }, [fetchLeaderboard]);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('seasons')
+        .select('*')
+        .order('start_date', { ascending: false });
+      if (error) {
+        console.error('Supabase Season List Error (leaderboard):', error);
+        return;
+      }
+      const list = (data || []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        is_active: Boolean(s.is_active),
+      }));
+      setSeasonOptions(list);
+      const active = list.find((s) => s.is_active);
+      setActiveSeasonId(active?.id ?? null);
+      setActiveSeasonName(active?.name ?? '');
+      const fallback = active?.id ?? list[0]?.id ?? null;
+      setSelectedSeasonId((prev) => prev ?? fallback);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (period === 'seasonal') {
+      const selected = seasonOptions.find((s) => s.id === selectedSeasonId);
+      if (selected) setSeasonName(selected.name);
+    } else if (activeSeasonName) {
+      setSeasonName(activeSeasonName);
+    }
+  }, [period, selectedSeasonId, seasonOptions, activeSeasonName]);
 
   useEffect(() => {
     (async () => {
@@ -226,6 +279,7 @@ export default function LeaderboardTab() {
       supabase.from('seasons').select('id, name').eq('is_active', true).maybeSingle().then(({ data }) => {
         if (data) {
           setActiveSeasonId(data.id);
+          setActiveSeasonName(data.name);
           setSeasonName(data.name);
         }
       });
@@ -237,7 +291,7 @@ export default function LeaderboardTab() {
     (async () => {
       const { data: mdList, error } = await supabase
         .from('match_days')
-        .select('id, match_date, cutoff_at, actual_total_goals, season_id')
+        .select('*')
         .eq('season_id', activeSeasonId)
         .order('match_date', { ascending: true });
       if (error || !mdList?.length) {
@@ -256,7 +310,8 @@ export default function LeaderboardTab() {
             (games || []).map((g) => ({ kickoff_at: g.kickoff_at }))
           );
           const num = mdList.indexOf(md) + 1;
-          return { ...md, status, label: `MD${num}` };
+          const mdName = (md as { name?: string | null }).name ?? null;
+          return { ...md, name: mdName, status, label: mdName ? `MD${num} — ${mdName}` : `MD${num}` };
         })
       );
       setMatchDays(withGames);
@@ -278,7 +333,7 @@ export default function LeaderboardTab() {
       try {
         const { data: md, error: mdErr } = await supabase
           .from('match_days')
-          .select('id, match_date, actual_total_goals, season_id, seasons(name)')
+          .select('*, seasons(name)')
           .eq('id', selectedMatchDayId)
           .single();
         if (mdErr || !md) {
@@ -289,6 +344,9 @@ export default function LeaderboardTab() {
         }
         const mdAny = md as any;
         const actual = mdAny.actual_total_goals;
+        const htGoals = mdAny.ht_goals ?? null;
+        const totalCorners = mdAny.total_corners ?? null;
+        const htCorners = mdAny.ht_corners ?? null;
         const leagueName = mdAny.seasons?.name || 'League';
 
         const { data: games } = await supabase
@@ -313,17 +371,17 @@ export default function LeaderboardTab() {
         }
 
         if (actual == null) {
-          setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual: 0, games: gameRows });
+          setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual: 0, htGoals, totalCorners, htCorners, games: gameRows });
           setMatchdayLeaderboard([]);
           setMatchdayLoading(false);
           return;
         }
 
-        setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual, games: gameRows });
+        setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual, htGoals, totalCorners, htCorners, games: gameRows });
 
         const { data: preds, error: predErr } = await supabase
           .from('predictions')
-          .select('user_id, predicted_total_goals, points')
+          .select('*')
           .eq('match_day_id', selectedMatchDayId);
         if (predErr) {
           setMatchdayLeaderboard([]);
@@ -336,7 +394,7 @@ export default function LeaderboardTab() {
           return;
         }
 
-        const userIds = [...new Set((preds as any[]).map((p) => p.user_id))];
+        const userIds = [...new Set((preds as any[]).map((p) => p.user_id).filter(Boolean))] as string[];
 
         // fetch email for matchday leaderboard
         const profileResult = userIds.length
@@ -348,18 +406,33 @@ export default function LeaderboardTab() {
           (profileList || []).map((p: any) => [p.id, { display_name: p.display_name }])
         );
 
+        const computePoints = (predVal: number | null | undefined, actualVal: number | null | undefined, stored: number | null | undefined) => {
+          if (stored != null) return stored;
+          if (actualVal == null || predVal == null) return 0;
+          return calculatePoints(predVal, actualVal);
+        };
+
         const withDiff = (preds as any[]).map((p) => {
-          // ── FIX 6: use resolveDisplayName instead of 'Unknown' ─────────
           const profileData = profileMap.get(p.user_id);
+          const ftPoints = computePoints(p.predicted_total_goals, actual, p.points);
+          const htPoints = htGoals != null ? computePoints(p.predicted_ht_goals, htGoals, p.ht_goals_points) : 0;
+          const cornersPoints = totalCorners != null ? computePoints(p.predicted_total_corners, totalCorners, p.corners_points) : 0;
+          const htCornersPoints = htCorners != null ? computePoints(p.predicted_ht_corners, htCorners, p.ht_corners_points) : 0;
+          const totalPoints = ftPoints + htPoints + cornersPoints + htCornersPoints;
           return {
             user_id: p.user_id,
             display_name: resolveDisplayName(profileData?.display_name),
             predicted: p.predicted_total_goals,
-            points: p.points != null ? p.points : calculatePoints(p.predicted_total_goals, actual),
+            points: totalPoints,
+            ftPoints,
+            htPoints,
+            cornersPoints,
+            htCornersPoints,
+            totalPoints,
             diff: Math.abs((p.predicted_total_goals || 0) - actual),
           };
         });
-        withDiff.sort((a, b) => b.points - a.points);
+        withDiff.sort((a, b) => b.totalPoints - a.totalPoints);
         const ranked = withDiff.map((r, i) => ({ ...r, rank: i + 1 }));
         setMatchdayLeaderboard(ranked);
       } finally {
@@ -426,6 +499,32 @@ export default function LeaderboardTab() {
         />
       </Tabs>
 
+      {period === 'seasonal' && (
+        <Box sx={{ mb: 3 }}>
+          <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
+            Select Season
+          </Typography>
+          <TextField
+            select
+            size="small"
+            value={selectedSeasonId ?? ''}
+            onChange={(e) => setSelectedSeasonId(e.target.value)}
+            sx={{
+              minWidth: 240,
+              input: { color: '#fff' },
+              label: { color: '#94a3b8' },
+              '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' },
+            }}
+          >
+            {seasonOptions.map((s) => (
+              <MenuItem key={s.id} value={s.id} sx={{ color: '#0f172a' }}>
+                {s.name}{s.is_active ? '' : ' (Closed)'}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Box>
+      )}
+
       {period === 'matchday' && (
         <Box sx={{ mb: 3 }}>
           <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
@@ -437,20 +536,38 @@ export default function LeaderboardTab() {
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', py: 0.5, flex: 1, minWidth: 0 }}>
               {matchDays.map((md) => (
-                <Box
-                  key={md.id}
-                  onClick={() => setSelectedMatchDayId(md.id)}
-                  sx={{
-                    px: 1.5, py: 0.75, borderRadius: 1, cursor: 'pointer',
-                    border: selectedMatchDayId === md.id ? '2px solid #16a34a' : '1px solid rgba(255,255,255,0.2)',
-                    backgroundColor: selectedMatchDayId === md.id ? 'rgba(22, 163, 74, 0.15)' : 'transparent',
-                    display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0,
-                  }}
-                >
-                  {md.status === 'completed' && <Box component="span" sx={{ color: '#16a34a', fontSize: '0.9rem' }}>✓</Box>}
-                  {md.status === 'live' && <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#f97316' }} />}
-                  <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '0.85rem' }}>{md.label}</Typography>
-                </Box>
+                md.name ? (
+                  <Tooltip key={md.id} title={md.name} placement="top">
+                    <Box
+                      onClick={() => setSelectedMatchDayId(md.id)}
+                      sx={{
+                        px: 1.5, py: 0.75, borderRadius: 1, cursor: 'pointer',
+                        border: selectedMatchDayId === md.id ? '2px solid #16a34a' : '1px solid rgba(255,255,255,0.2)',
+                        backgroundColor: selectedMatchDayId === md.id ? 'rgba(22, 163, 74, 0.15)' : 'transparent',
+                        display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0,
+                      }}
+                    >
+                      {md.status === 'completed' && <Box component="span" sx={{ color: '#16a34a', fontSize: '0.9rem' }}>✓</Box>}
+                      {md.status === 'live' && <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#f97316' }} />}
+                      <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '0.85rem' }}>{md.label}</Typography>
+                    </Box>
+                  </Tooltip>
+                ) : (
+                  <Box
+                    key={md.id}
+                    onClick={() => setSelectedMatchDayId(md.id)}
+                    sx={{
+                      px: 1.5, py: 0.75, borderRadius: 1, cursor: 'pointer',
+                      border: selectedMatchDayId === md.id ? '2px solid #16a34a' : '1px solid rgba(255,255,255,0.2)',
+                      backgroundColor: selectedMatchDayId === md.id ? 'rgba(22, 163, 74, 0.15)' : 'transparent',
+                      display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0,
+                    }}
+                  >
+                    {md.status === 'completed' && <Box component="span" sx={{ color: '#16a34a', fontSize: '0.9rem' }}>✓</Box>}
+                    {md.status === 'live' && <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#f97316' }} />}
+                    <Typography sx={{ color: '#fff', fontWeight: 600, fontSize: '0.85rem' }}>{md.label}</Typography>
+                  </Box>
+                )
               ))}
             </Box>
             <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', ml: 1 }}>— scroll to browse —</Typography>
@@ -518,7 +635,7 @@ export default function LeaderboardTab() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {/* ── FIX 7: removed hardcoded Jackson and Martin rows ── */}
+                    {/* -- FIX 7: removed hardcoded Jackson and Martin rows -- */}
                     {matchdayLeaderboard.map((row) => {
                       const tag = getAccuracyTag(row.diff);
                       return (
@@ -537,7 +654,12 @@ export default function LeaderboardTab() {
                             </Box>
                           </TableCell>
                           <TableCell sx={{ color: '#9ca3af' }}>{row.predicted}</TableCell>
-                          <TableCell align="right" sx={{ color: '#60a5fa', fontWeight: 700 }}>{row.points} pts</TableCell>
+                          <TableCell align="right">
+                            <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>{row.totalPoints} pts</Typography>
+                            <Typography sx={{ color: '#6b7280', fontSize: '0.7rem' }}>
+                              FT {row.ftPoints} · HT {row.htPoints} · COR {row.cornersPoints} · HTC {row.htCornersPoints}
+                            </Typography>
+                          </TableCell>
                           <TableCell align="right">
                             <Chip
                               label={`${tag.label}${row.diff > 0 ? ` off by ${row.diff}` : ''}`}
@@ -564,8 +686,15 @@ export default function LeaderboardTab() {
                       <Typography sx={{ color: '#fff' }}>{myMatchdayEntry.display_name} (you)</Typography>
                     </Box>
                     <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>
-                      Predicted {myMatchdayEntry.predicted} · Actual {matchdayDetail.actual} · {myMatchdayEntry.points} pts · {getAccuracyTag(myMatchdayEntry.diff).label}
+                      Predicted {myMatchdayEntry.predicted} · Actual {matchdayDetail.actual} · {myMatchdayEntry.totalPoints} pts · {getAccuracyTag(myMatchdayEntry.diff).label}
                     </Typography>
+                  </Box>
+                  <Box sx={{ mt: 1, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 0.5 }}>
+                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>FT Goals: {myMatchdayEntry.ftPoints} pts</Typography>
+                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>HT Goals: {myMatchdayEntry.htPoints} pts</Typography>
+                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Corners: {myMatchdayEntry.cornersPoints} pts</Typography>
+                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>HT Corners: {myMatchdayEntry.htCornersPoints} pts</Typography>
+                    <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.85rem' }}>Total: {myMatchdayEntry.totalPoints} pts</Typography>
                   </Box>
                 </Box>
               )}

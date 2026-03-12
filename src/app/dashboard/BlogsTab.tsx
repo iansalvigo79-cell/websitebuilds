@@ -279,7 +279,7 @@ export default function BlogsTab() {
         }}
       >
             <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+              <Typography variant="h6" component="span" sx={{ fontWeight: 700 }}>
                 {selectedBlog?.title}
               </Typography>
               <IconButton onClick={handleCloseModal} sx={{ color: '#999' }}>

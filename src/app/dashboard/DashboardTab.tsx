@@ -1,7 +1,7 @@
 "use client";
 
 import { Box, Typography, Stack, Button, Card, CardContent, Grid, IconButton, Paper, Collapse, Skeleton } from '@mui/material';
-import { League, Season, MatchDay, Game } from '@/types/database';
+import { Competition, Season, MatchDay, Game } from '@/types/database';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
@@ -15,6 +15,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import RemoveIcon from '@mui/icons-material/Remove';
 import AddIcon from '@mui/icons-material/Add';
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import PrizeWidget from './PrizeWidget';
@@ -22,14 +23,24 @@ import './DashboardTab.css';
 import ModernLoader from '@/components/ui/ModernLoader';
 // import './DashboardTab.css';
 
-// Fallback logo mapping for leagues without logo_url in DB
-const LEAGUE_LOGO_FALLBACK: Record<string, string> = {
+// Fallback logo mapping for competitions without logo_url in DB
+const COMPETITION_LOGO_FALLBACK: Record<string, string> = {
   'England Premier League': '/assets/images/League logo/england-premier-league-logo.jpg',
+  'Premier League': '/assets/images/League logo/england-premier-league-logo.jpg',
   'Spain La Liga': '/assets/images/League logo/spain-la-liga.png',
+  'La Liga': '/assets/images/League logo/spain-la-liga.png',
   'Europe UEFA Champions League': '/assets/images/League logo/europe-uefa-champions-league.png',
+  'UEFA Champions League': '/assets/images/League logo/europe-uefa-champions-league.png',
+  'Champions League': '/assets/images/League logo/europe-uefa-champions-league.png',
   'Europe UEFA Europa League': '/assets/images/League logo/europe-uefa-europa-league.png',
+  'UEFA Europa League': '/assets/images/League logo/europe-uefa-europa-league.png',
+  'Europa League': '/assets/images/League logo/europe-uefa-europa-league.png',
   'Europe UEFA Europa Conference League': '/assets/images/League logo/europe-uefa-europa-conference-league.png',
+  'UEFA Europa Conference League': '/assets/images/League logo/europe-uefa-europa-conference-league.png',
+  'Europa Conference League': '/assets/images/League logo/europe-uefa-europa-conference-league.png',
   'International WC Qualification Europe': '/assets/images/League logo/international-wc-qualification-europe.png',
+  'WC Qualification Europe': '/assets/images/League logo/international-wc-qualification-europe.png',
+  'World Cup Qualification Europe': '/assets/images/League logo/international-wc-qualification-europe.png',
 };
 
 interface GameWithTeams extends Game {
@@ -43,70 +54,91 @@ interface MatchDayGroup {
 }
 
 export default function DashboardTab() {
-  const [leagues, setLeagues] = useState<League[]>([]);
-  const [selectedLeague, setSelectedLeague] = useState<League | null>(null);
+  const router = useRouter();
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [selectedCompetition, setSelectedCompetition] = useState<Competition | null>(null);
   const [activeSeason, setActiveSeason] = useState<Season | null>(null);
   const [matchDayGroups, setMatchDayGroups] = useState<MatchDayGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
   const [currentPredictionIndex, setCurrentPredictionIndex] = useState(0);
   const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
+  const [openMatchday, setOpenMatchday] = useState<{
+    id: string;
+    name?: string | null;
+    match_date: string;
+    cutoff_at: string;
+    seasons?: { name?: string | null } | null;
+  } | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  const [isPaidUser, setIsPaidUser] = useState(false);
 
-  // Helper: get league logo (DB url or local fallback)
-  const getLeagueLogo = (league: League) => {
-    return league.logo_url || LEAGUE_LOGO_FALLBACK[league.name] || '/assets/images/logo.png';
+  // Helper: get competition logo (DB url or local fallback)
+  const getCompetitionLogo = (competition: Competition) => {
+    return competition.logo_url || COMPETITION_LOGO_FALLBACK[competition.name] || '/assets/images/logo.png';
   };
 
-  // ─── Fetch leagues on mount ───
+  // ─── Fetch competitions on mount ───
   useEffect(() => {
-    const fetchLeagues = async () => {
+    const fetchCompetitions = async () => {
       try {
-        const { data, error } = await supabase
-          .from('leagues')
+        let competitionsResult = await supabase
+          .from('competitions')
           .select('*')
+          .eq('is_active', true)
           .order('name');
 
-        if (error) {
-          console.error('Error fetching leagues:', error);
-          toast.error('Failed to load leagues');
+        if (competitionsResult.error) {
+          console.error('Error fetching competitions (active filter):', competitionsResult.error);
+          competitionsResult = await supabase
+            .from('competitions')
+            .select('*')
+            .order('name');
+        }
+
+        if (competitionsResult.error) {
+          console.error('Error fetching competitions:', competitionsResult.error);
+          toast.error('Failed to load competitions');
           setIsLoading(false);
           return;
         }
 
-        const fetchedLeagues: League[] = data || [];
-        setLeagues(fetchedLeagues);
+        const fetchedCompetitions: Competition[] = competitionsResult.data || [];
+        setCompetitions(fetchedCompetitions);
 
-        if (fetchedLeagues.length > 0) {
-          setSelectedLeague(fetchedLeagues[0]);
+        if (fetchedCompetitions.length > 0) {
+          setSelectedCompetition(fetchedCompetitions[0]);
         }
       } catch (err) {
-        console.error('Unexpected error fetching leagues:', err);
-        toast.error('Failed to load leagues');
+        console.error('Unexpected error fetching competitions:', err);
+        toast.error('Failed to load competitions');
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchLeagues();
+    fetchCompetitions();
   }, []);
 
-  // ─── Fetch season → matchdays → games when league changes ───
-  const fetchMatchData = useCallback(async (league: League) => {
+  // ─── Fetch season → matchdays → games when competition changes ───
+  const fetchMatchData = useCallback(async (competition: Competition) => {
     setIsLoadingMatches(true);
     setMatchDayGroups([]);
     setCurrentPredictionIndex(0);
 
     try {
-      // 1. Fetch active season for this league (fallback: any active season)
+      // 1. Fetch active season for this competition (fallback: any active season)
       let seasonResult = await supabase
         .from('seasons')
         .select('*')
-        .eq('league_id', league.id)
+        .eq('league_id', competition.id)
         .eq('is_active', true)
         .maybeSingle();
-      // If league_id column doesn't exist yet, fall back to any active season
-      if (seasonResult.error) {
-        console.warn('Seasons league_id query failed, falling back:', seasonResult.error);
+      // If league_id isn't available or no season found, fall back to any active season
+      if (seasonResult.error || !seasonResult.data) {
+        if (seasonResult.error) {
+          console.warn('Seasons competition lookup failed, falling back:', seasonResult.error);
+        }
         seasonResult = await supabase
           .from('seasons')
           .select('*')
@@ -168,6 +200,7 @@ export default function DashboardTab() {
           away_team_rel:teams!games_away_team_fkey(id, name)
         `)
         .in('match_day_id', matchDayIds)
+        .eq('competition_id', competition.id)
         .order('kickoff_at', { ascending: true });
 
       // If join query fails, fallback to plain query
@@ -177,6 +210,7 @@ export default function DashboardTab() {
           .from('games')
           .select('*')
           .in('match_day_id', matchDayIds)
+          .eq('competition_id', competition.id)
           .order('kickoff_at', { ascending: true });
       }
 
@@ -219,10 +253,72 @@ export default function DashboardTab() {
   }, []);
 
   useEffect(() => {
-    if (selectedLeague) {
-      fetchMatchData(selectedLeague);
+    if (selectedCompetition) {
+      fetchMatchData(selectedCompetition);
     }
-  }, [selectedLeague, fetchMatchData]);
+  }, [selectedCompetition, fetchMatchData]);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchProfile = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!isMounted) return;
+      if (!user) {
+        setIsPaidUser(false);
+        return;
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('account_type, stripe_subscription_id')
+        .eq('id', user.id)
+        .single();
+      if (!isMounted) return;
+      const paid = profile?.account_type === 'paid' || Boolean(profile?.stripe_subscription_id);
+      setIsPaidUser(Boolean(paid));
+    };
+    fetchProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeSeason?.id) {
+      setOpenMatchday(null);
+      return;
+    }
+    let isMounted = true;
+    const fetchOpenMatchday = async () => {
+      const { data } = await supabase
+        .from('match_days')
+        .select('id, name, match_date, cutoff_at, seasons(name)')
+        .eq('season_id', activeSeason.id)
+        .gt('cutoff_at', new Date().toISOString())
+        .order('match_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!isMounted) return;
+      if (!data) {
+        setOpenMatchday(null);
+        return;
+      }
+      const seasonsRel = Array.isArray((data as any).seasons)
+        ? (data as any).seasons[0] ?? null
+        : (data as any).seasons ?? null;
+      setOpenMatchday({ ...(data as any), seasons: seasonsRel });
+    };
+    fetchOpenMatchday();
+    const interval = setInterval(fetchOpenMatchday, 60_000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeSeason?.id]);
 
   // ─── Collapse toggle ───
   const toggleCollapse = (matchDayId: string) => {
@@ -234,7 +330,7 @@ export default function DashboardTab() {
     return (
       <ModernLoader
         label="Loading Dashboard Data"
-        sublabel="Syncing leagues and matchday info..."
+        sublabel="Syncing competitions and matchday info..."
         minHeight="60vh"
       />
     );
@@ -242,7 +338,6 @@ export default function DashboardTab() {
 
   // ─── Derived data ───
   // Featured games: first 3 games from the first matchday whose cutoff is before now
-  const now = new Date();
   const firstCutoffMatchDay = matchDayGroups
     .filter((g) => g.matchDay.cutoff_at && new Date(g.matchDay.cutoff_at) > now)
     .sort((a, b) => new Date(a.matchDay.cutoff_at).getTime() - new Date(b.matchDay.cutoff_at).getTime())[0] || null;
@@ -252,6 +347,14 @@ export default function DashboardTab() {
 
   const featuredGame = featuredGames.length > 0 ? featuredGames[currentPredictionIndex] || featuredGames[0] : null;
   const totalPredictions = featuredGames.length;
+  const timeRemainingMs = openMatchday ? new Date(openMatchday.cutoff_at).getTime() - now.getTime() : 0;
+  const remainingMinutes = openMatchday ? Math.max(0, Math.ceil(timeRemainingMs / 60000)) : 0;
+  const remainingHours = Math.floor(remainingMinutes / 60);
+  const remainingMins = remainingMinutes % 60;
+  const countdownLabel = openMatchday ? `Closes in ${remainingHours}h ${remainingMins}m` : '';
+  const isClosingHour = remainingMinutes > 0 && remainingMinutes <= 60;
+  const isClosingSoon = remainingMinutes > 0 && remainingMinutes <= 15;
+  const countdownColor = isClosingSoon ? '#ef4444' : isClosingHour ? '#f97316' : '#9ca3af';
 
   const formatTime = (dateString: string | null | undefined) => {
     if (!dateString) return '16:00';
@@ -266,6 +369,15 @@ export default function DashboardTab() {
       month: 'short',
       year: 'numeric',
       timeZone: 'UTC'
+    });
+  };
+
+  const formatOpenMatchdayDate = (dateString: string | null | undefined) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
     });
   };
 
@@ -285,12 +397,160 @@ export default function DashboardTab() {
     setCurrentPredictionIndex((prev) => (prev < totalPredictions - 1 ? prev + 1 : 0));
   };
 
-  const handleLeagueSelect = (league: League) => {
-    setSelectedLeague(league);
+  const handleCompetitionSelect = (competition: Competition) => {
+    setSelectedCompetition(competition);
   };
 
   return (
     <Box>
+      {openMatchday ? (
+        <Box
+          sx={{
+            background: 'linear-gradient(135deg, rgba(22,163,74,0.2), rgba(22,163,74,0.05))',
+            border: '1px solid rgba(22,163,74,0.4)',
+            borderRadius: '14px',
+            p: { xs: 3, md: '28px 32px' },
+            mb: 3,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '1.5rem',
+              fontWeight: 900,
+              color: '#ffffff',
+              textTransform: 'uppercase',
+              letterSpacing: '0.02em',
+            }}
+          >
+            ⚽ MATCHDAY OPEN — MAKE YOUR PREDICTION NOW!
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mt: 1 }}>
+            <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', fontWeight: 600 }}>
+              {openMatchday.name || formatOpenMatchdayDate(openMatchday.match_date)}
+            </Typography>
+            <Typography sx={{ color: '#6b7280', fontSize: '0.95rem' }}>•</Typography>
+            <Typography sx={{ color: countdownColor, fontSize: '0.95rem', fontWeight: 700 }}>
+              {countdownLabel}
+            </Typography>
+            {isClosingSoon && (
+              <Typography sx={{ color: '#ef4444', fontSize: '0.95rem', fontWeight: 800 }}>
+                CLOSING SOON!
+              </Typography>
+            )}
+          </Box>
+          <Button
+            onClick={() => router.push('/predictions')}
+            sx={{
+              mt: 2.5,
+              backgroundColor: '#16a34a',
+              color: '#000',
+              fontWeight: 900,
+              fontSize: '1.1rem',
+              px: 4,
+              py: 1.75,
+              borderRadius: '10px',
+              textTransform: 'none',
+              animation: 'pulse-green 2s infinite',
+              transition: 'transform 0.2s ease, background-color 0.2s ease',
+              '@keyframes pulse-green': {
+                '0%, 100%': { boxShadow: '0 0 0 0 rgba(22,163,74,0.4)' },
+                '50%': { boxShadow: '0 0 0 12px rgba(22,163,74,0)' },
+              },
+              '&:hover': { backgroundColor: '#15803d', transform: 'scale(1.02)' },
+            }}
+          >
+            PREDICT NOW →
+          </Button>
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            backgroundColor: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px',
+            p: 2.5,
+            mb: 3,
+          }}
+        >
+          <Typography sx={{ color: '#6b7280' }}>
+            No open matchday right now. Check back soon!
+          </Typography>
+        </Box>
+      )}
+      {!isPaidUser && (
+        <Box
+          sx={{
+            background: 'linear-gradient(135deg, rgba(234,179,8,0.1), rgba(234,179,8,0.03))',
+            border: '1px solid rgba(234,179,8,0.3)',
+            borderRadius: '14px',
+            p: { xs: 3, md: '24px 28px' },
+            mb: 3,
+          }}
+        >
+          <Typography sx={{ color: '#eab308', fontWeight: 900, fontSize: '1.1rem', mb: 1 }}>
+            👑 UNLOCK ALL 4 PREDICTION GAMES
+          </Typography>
+          <Stack spacing={1.25} sx={{ mb: 2 }}>
+            {[
+              { name: 'FT Goals', tier: 'free' },
+              { name: 'HT Goals', tier: 'pro' },
+              { name: 'Corners', tier: 'pro' },
+              { name: 'Cards', tier: 'pro' },
+            ].map((game) => (
+              <Box key={game.name} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography sx={{ color: '#fff', fontWeight: 700 }}>{game.name}</Typography>
+                {game.tier === 'free' ? (
+                  <Box
+                    sx={{
+                      backgroundColor: 'rgba(22,163,74,0.15)',
+                      color: '#16a34a',
+                      borderRadius: 999,
+                      px: 1.5,
+                      py: 0.5,
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                    }}
+                  >
+                    ✅ FREE
+                  </Box>
+                ) : (
+                  <Box
+                    sx={{
+                      backgroundColor: 'rgba(234,179,8,0.15)',
+                      color: '#eab308',
+                      borderRadius: 999,
+                      px: 1.5,
+                      py: 0.5,
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                    }}
+                  >
+                    🔒 PRO
+                  </Box>
+                )}
+              </Box>
+            ))}
+          </Stack>
+          <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', mb: 2 }}>
+            Upgrade for just £5/month and earn 4x more points every matchday!
+          </Typography>
+          <Button
+            fullWidth
+            onClick={() => router.push('/paywall')}
+            sx={{
+              background: 'linear-gradient(135deg, #eab308, #d97706)',
+              color: '#000000',
+              fontWeight: 900,
+              fontSize: '1rem',
+              py: 1.75,
+              borderRadius: '10px',
+              textTransform: 'none',
+            }}
+          >
+            👑 UPGRADE NOW — £5/MONTH →
+          </Button>
+        </Box>
+      )}
       <PrizeWidget />
       <Grid container spacing={3}>
       {/* Left Sidebar */}
@@ -328,7 +588,7 @@ export default function DashboardTab() {
                     <Box className="prediction-info-row">
                       <EmojiEventsIcon className="prediction-info-icon" />
                       <Typography className="prediction-info-text">
-                        {selectedLeague?.name || ''}
+                        {selectedCompetition?.name || ''}
                       </Typography>
                     </Box>
                     <Box className="prediction-info-row">
@@ -496,20 +756,20 @@ export default function DashboardTab() {
             </Card>
           )}
 
-          {/* Football Leagues */}
+          {/* Competitions */}
           <Card sx={{ backgroundColor: '#24262F', borderRadius: '12px', border: '1px solid rgb(77, 77, 77)' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 2 }}>
                 <SportsSoccerIcon sx={{ color: '#fff', fontSize: '1.6rem' }} />
                 <Typography sx={{ color: '#fff', fontSize: '1rem', fontWeight: 700 }}>
-                  Football Leagues
+                  Competitions
                 </Typography>
               </Box>
               <Stack spacing={1}>
-                {leagues.map((league) => (
+                {competitions.map((competition) => (
                   <Box
-                    key={league.id}
-                    onClick={() => handleLeagueSelect(league)}
+                    key={competition.id}
+                    onClick={() => handleCompetitionSelect(competition)}
                     sx={{
                       display: 'flex',
                       alignItems: 'center',
@@ -517,8 +777,8 @@ export default function DashboardTab() {
                       p: 1.5,
                       borderRadius: '8px',
                       cursor: 'pointer',
-                      backgroundColor: selectedLeague?.id === league.id ? 'rgba(15, 93, 31, 0.1)' : 'transparent',
-                      border: selectedLeague?.id === league.id ? '1px solid #0f5d1f' : '1px solid transparent',
+                      backgroundColor: selectedCompetition?.id === competition.id ? 'rgba(15, 93, 31, 0.1)' : 'transparent',
+                      border: selectedCompetition?.id === competition.id ? '1px solid #0f5d1f' : '1px solid transparent',
                       '&:hover': {
                         backgroundColor: 'rgba(15, 93, 31, 0.05)',
                       }
@@ -527,16 +787,16 @@ export default function DashboardTab() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       <Box sx={{ width: 48, height: 48, position: 'relative', flexShrink: 0, borderRadius: '50%', overflow: 'hidden' }}>
                         <Image
-                          src={getLeagueLogo(league)}
-                          alt={league.name}
+                          src={getCompetitionLogo(competition)}
+                          alt={competition.name}
                           fill
                           style={{ objectFit: 'cover' }}
                           sizes="48px"
                         />
                       </Box>
                       <Box>
-                        <Typography sx={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>{league.name}</Typography>
-                        <Typography sx={{ color: '#999', fontSize: '0.75rem' }}>{league.country}</Typography>
+                        <Typography sx={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>{competition.name}</Typography>
+                        <Typography sx={{ color: '#999', fontSize: '0.75rem' }}>{competition.country || competition.short_name || ''}</Typography>
                       </Box>
                     </Box>
                     <ArrowForwardIcon sx={{ color: '#0f5d1f', fontSize: '1rem' }} />
@@ -553,7 +813,7 @@ export default function DashboardTab() {
         <Stack spacing={3}>
           {/* Title */}
           <Typography variant="h4" sx={{ fontWeight: 900, color: '#00a54e', textTransform: 'uppercase' }}>
-            {selectedLeague?.name || 'League'} Predictions
+            {selectedCompetition?.name || 'Competition'} Predictions
             {activeSeason && (
               <Typography component="span" sx={{ fontSize: '1rem', fontWeight: 400, color: '#999', ml: 2 }}>
                 {activeSeason.name}
@@ -565,7 +825,7 @@ export default function DashboardTab() {
           {isLoadingMatches && (
             <ModernLoader
               label="Loading Matches"
-              sublabel="Updating selected league fixtures..."
+              sublabel="Updating selected competition fixtures..."
               minHeight={220}
             />
           )}
@@ -590,11 +850,11 @@ export default function DashboardTab() {
                   onClick={() => toggleCollapse(group.matchDay.id)}
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    {selectedLeague && (
+                    {selectedCompetition && (
                       <Box sx={{ width: 24, height: 24, position: 'relative', borderRadius: '50%', overflow: 'hidden' }}>
                         <Image
-                          src={getLeagueLogo(selectedLeague)}
-                          alt={selectedLeague.name}
+                          src={getCompetitionLogo(selectedCompetition)}
+                          alt={selectedCompetition.name}
                           fill
                           style={{ objectFit: 'cover' }}
                           sizes="24px"
@@ -602,7 +862,7 @@ export default function DashboardTab() {
                       </Box>
                     )}
                     <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>
-                      {selectedLeague?.name || 'League'}
+                      {selectedCompetition?.name || 'Competition'}
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
                       <CalendarTodayIcon sx={{ color: '#fff', fontSize: '1rem' }} />
@@ -711,9 +971,9 @@ export default function DashboardTab() {
             <Card sx={{ backgroundColor: '#111111', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px' }}>
               <CardContent>
                 <Typography sx={{ color: '#999', textAlign: 'center', py: 4 }}>
-                  {selectedLeague
-                    ? `No matches available for ${selectedLeague.name} at the moment`
-                    : 'No leagues available'}
+                  {selectedCompetition
+                    ? `No matches available for ${selectedCompetition.name} at the moment`
+                    : 'No competitions available'}
                 </Typography>
               </CardContent>
             </Card>

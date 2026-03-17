@@ -1,29 +1,32 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack, Checkbox, FormControlLabel, Select, MenuItem, FormControl } from '@mui/material';
+import { Box, Button, Container, TextField, Typography, Stack, Checkbox, FormControlLabel } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
-import { Team } from '@/types/database';
 import ModernLoader from '@/components/ui/ModernLoader';
 
 export default function SignUpPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({
-    displayName: '', 
-    teamName: '',
+    firstName: '',
+    lastName: '',
+    displayName: '',
     email: '',
+    whatsapp: '',
     password: '',
     confirmPassword: '',
     termsAccepted: false,
   });
 
   const [errors, setErrors] = useState({
+    firstName: '',
+    lastName: '',
     displayName: '',
-    teamName: '',
+    whatsapp: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -31,37 +34,6 @@ export default function SignUpPage() {
   });
 
   const [isLoading, setIsLoading] = useState(false);
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [loadingTeams, setLoadingTeams] = useState(true);
-
-  useEffect(() => {
-    const fetchTeams = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('teams')
-          .select('*')
-          .order('name', { ascending: true });
-
-        if (error) {
-          console.error('Supabase Teams Error (signup):', error);
-          toast.error('Error loading teams: ' + error.message);
-          setLoadingTeams(false);
-          return;
-        }
-
-        if (data) {
-          setTeams(data);
-        }
-      } catch (err) {
-        console.error('Unexpected Error loading teams (signup):', err);
-        toast.error('An error occurred while loading teams');
-      } finally {
-        setLoadingTeams(false);
-      }
-    };
-
-    fetchTeams();
-  }, []);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -70,22 +42,34 @@ export default function SignUpPage() {
 
   const validateForm = () => {
     const newErrors = {
+      firstName: '',
+      lastName: '',
       displayName: '',
-      teamName: '',
+      whatsapp: '',
       email: '',
       password: '',
       confirmPassword: '',
       termsAccepted: '',
     };
 
-    if (!formData.displayName.trim()) {
-      newErrors.displayName = 'Display name is required';
-    } else if (formData.displayName.length < 3) {
-      newErrors.displayName = 'Display name must be at least 3 characters';
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    } else if (formData.firstName.trim().length < 2) {
+      newErrors.firstName = 'First name must be at least 2 characters';
     }
 
-    if (!formData.teamName) {
-      newErrors.teamName = 'Please select a team';
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    } else if (formData.lastName.trim().length < 2) {
+      newErrors.lastName = 'Last name must be at least 2 characters';
+    }
+
+    if (formData.displayName.trim() && formData.displayName.trim().length > 20) {
+      newErrors.displayName = 'Display name must be 20 characters or less';
+    }
+
+    if (formData.whatsapp.trim() && !formData.whatsapp.trim().startsWith('+')) {
+      newErrors.whatsapp = 'WhatsApp number must start with +';
     }
 
     if (!formData.email.trim()) {
@@ -156,51 +140,25 @@ export default function SignUpPage() {
       }
 
       if (authData.user) {
-        // Check if profile already exists
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('id', authData.user.id)
-          .single();
-
-        if (existingProfile) {
-          // Profile already exists, update it instead
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .update({
-              display_name: formData.displayName,
-              team_id: formData.teamName,
-            })
-            .eq('id', authData.user.id);
-
-          if (profileError) {
-            console.error('Supabase Profile Update Error (signup):', profileError);
-            toast.error('Error updating profile: ' + profileError.message);
-            setIsLoading(false);
-            return;
-          }
-        } else {
-          // Create new profile in profiles table
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert({
+          .upsert({
             id: authData.user.id,
-            display_name: formData.displayName,
-              team_id: formData.teamName,
+            email: formData.email,
+            first_name: formData.firstName.trim(),
+            last_name: formData.lastName.trim(),
+            display_name: formData.displayName.trim() || null,
+            whatsapp: formData.whatsapp.trim() || null,
+            account_type: 'free',
             subscription_status: 'inactive',
+            role: 0,
           });
 
         if (profileError) {
-            // If it's a duplicate key error, profile was created in the meantime
-            if (profileError.code === '23505') {
-              console.log('Profile already exists, continuing...');
-            } else {
-              console.error('Supabase Profile Error (signup):', profileError);
-              toast.error('Error creating profile: ' + profileError.message);
+          console.error('Supabase Profile Error (signup):', profileError);
+          toast.error('Error creating profile: ' + profileError.message);
           setIsLoading(false);
           return;
-            }
-          }
         }
 
         toast.success('Account created successfully! Redirecting to login...');
@@ -279,28 +237,28 @@ export default function SignUpPage() {
                   textTransform: 'uppercase',
                 }}
               >
-                Display Name
+                First Name
               </Typography>
               <TextField
-                name="displayName"
-                placeholder="Enter your display name"
+                name="firstName"
+                placeholder="Enter your first name"
                 variant="outlined"
                 fullWidth
-                value={formData.displayName}
+                value={formData.firstName}
                 onChange={handleChange}
-                error={!!errors.displayName}
-                helperText={errors.displayName}
+                error={!!errors.firstName}
+                helperText={errors.firstName}
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#1a1a1a',
+                    backgroundColor: '#111827',
                     borderRadius: '8px',
-                    border: errors.displayName ? '1px solid #ff6b6b' : '1px solid rgba(255, 255, 255, 0.2)',
+                    border: errors.firstName ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
                     color: '#fff',
                     '&:hover': {
-                      borderColor: errors.displayName ? '#ff6b6b' : 'rgba(255, 255, 255, 0.3)',
+                      borderColor: errors.firstName ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
                     },
                     '&.Mui-focused': {
-                      borderColor: errors.displayName ? '#ff6b6b' : '#16a34a',
+                      borderColor: errors.firstName ? '#ff6b6b' : '#16a34a',
                     },
                   },
                   '& .MuiOutlinedInput-input::placeholder': {
@@ -308,7 +266,7 @@ export default function SignUpPage() {
                     opacity: 1,
                   },
                   '& .MuiFormHelperText-root': {
-                    color: errors.displayName ? '#ff6b6b' : '#16a34a',
+                    color: errors.firstName ? '#ff6b6b' : '#94a3b8',
                     marginTop: '4px',
                   },
                 }}
@@ -326,71 +284,87 @@ export default function SignUpPage() {
                   textTransform: 'uppercase',
                 }}
               >
-                Team
+                Last Name
               </Typography>
-              <FormControl
+              <TextField
+                name="lastName"
+                placeholder="Enter your last name"
+                variant="outlined"
                 fullWidth
-                error={!!errors.teamName}
+                value={formData.lastName}
+                onChange={handleChange}
+                error={!!errors.lastName}
+                helperText={errors.lastName}
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#1a1a1a',
+                    backgroundColor: '#111827',
                     borderRadius: '8px',
-                    border: errors.teamName ? '1px solid #ff6b6b' : '1px solid rgba(255, 255, 255, 0.2)',
+                    border: errors.lastName ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
                     color: '#fff',
                     '&:hover': {
-                      borderColor: errors.teamName ? '#ff6b6b' : 'rgba(255, 255, 255, 0.3)',
+                      borderColor: errors.lastName ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
                     },
                     '&.Mui-focused': {
-                      borderColor: errors.teamName ? '#ff6b6b' : '#16a34a',
-                    },
-                    '& .MuiOutlinedInput-notchedOutline': {
-                      border: 'none',
+                      borderColor: errors.lastName ? '#ff6b6b' : '#16a34a',
                     },
                   },
-                  '& .MuiInputLabel-root': {
+                  '& .MuiOutlinedInput-input::placeholder': {
                     color: '#888',
+                    opacity: 1,
                   },
-                  '& .MuiInputLabel-root.Mui-focused': {
-                    color: '#16a34a',
-                  },
-                  '& .MuiSelect-icon': {
-                    color: '#fff',
+                  '& .MuiFormHelperText-root': {
+                    color: errors.lastName ? '#ff6b6b' : '#94a3b8',
+                    marginTop: '4px',
                   },
                 }}
+              />
+            </Box>
+
+            <Box>
+              <Typography
+                sx={{
+                  color: '#fff',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  mb: 1,
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                }}
               >
-                <Select
-                  name="teamName"
-                  value={formData.teamName}
-                  onChange={(e) => handleChange({ target: { name: 'teamName', value: e.target.value } })}
-                  displayEmpty
-                  disabled={loadingTeams}
-                  sx={{
+                Display Name
+              </Typography>
+              <TextField
+                name="displayName"
+                placeholder="Enter your display name"
+                variant="outlined"
+                fullWidth
+                value={formData.displayName}
+                onChange={handleChange}
+                error={!!errors.displayName}
+                helperText={errors.displayName || 'This is what shows on the leaderboard'}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#111827',
+                    borderRadius: '8px',
+                    border: errors.displayName ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
                     color: '#fff',
-                    '& .MuiSelect-select': {
-                      padding: '14px',
+                    '&:hover': {
+                      borderColor: errors.displayName ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
                     },
-                  }}
-                >
-                  <MenuItem value="" disabled>
-                    <em>Select a team</em>
-                  </MenuItem>
-                  {teams.map((team) => (
-                    <MenuItem key={team.id} value={team.id} sx={{ color: '#fff' }}>
-                      {team.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {errors.teamName && (
-                <Typography sx={{ color: '#ff6b6b', fontSize: '0.75rem', mt: 0.5 }}>
-                  {errors.teamName}
-                </Typography>
-              )}
-              {!errors.teamName && (
-                <Typography sx={{ color: '#999', fontSize: '0.75rem', mt: 0.5 }}>
-                  This will be displayed on the leaderboard
-                </Typography>
-              )}
+                    '&.Mui-focused': {
+                      borderColor: errors.displayName ? '#ff6b6b' : '#16a34a',
+                    },
+                  },
+                  '& .MuiOutlinedInput-input::placeholder': {
+                    color: '#888',
+                    opacity: 1,
+                  },
+                  '& .MuiFormHelperText-root': {
+                    color: errors.displayName ? '#ff6b6b' : '#94a3b8',
+                    marginTop: '4px',
+                  },
+                }}
+              />
             </Box>
 
             <Box>
@@ -418,12 +392,12 @@ export default function SignUpPage() {
                 helperText={errors.email}
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#1a1a1a',
+                    backgroundColor: '#111827',
                     borderRadius: '8px',
-                    border: errors.email ? '1px solid #ff6b6b' : '1px solid rgba(255, 255, 255, 0.2)',
+                    border: errors.email ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
                     color: '#fff',
                     '&:hover': {
-                      borderColor: errors.email ? '#ff6b6b' : 'rgba(255, 255, 255, 0.3)',
+                      borderColor: errors.email ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
                     },
                     '&.Mui-focused': {
                       borderColor: errors.email ? '#ff6b6b' : '#16a34a',
@@ -434,7 +408,54 @@ export default function SignUpPage() {
                     opacity: 1,
                   },
                   '& .MuiFormHelperText-root': {
-                    color: errors.email ? '#ff6b6b' : '#16a34a',
+                    color: errors.email ? '#ff6b6b' : '#94a3b8',
+                    marginTop: '4px',
+                  },
+                }}
+              />
+            </Box>
+
+            <Box>
+              <Typography
+                sx={{
+                  color: '#fff',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  mb: 1,
+                  letterSpacing: 1.2,
+                  textTransform: 'uppercase',
+                }}
+              >
+                WhatsApp Number
+              </Typography>
+              <TextField
+                name="whatsapp"
+                placeholder="+44 7700 900000"
+                variant="outlined"
+                fullWidth
+                value={formData.whatsapp}
+                onChange={handleChange}
+                error={!!errors.whatsapp}
+                helperText={errors.whatsapp || 'Include your country code'}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#111827',
+                    borderRadius: '8px',
+                    border: errors.whatsapp ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
+                    color: '#fff',
+                    '&:hover': {
+                      borderColor: errors.whatsapp ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
+                    },
+                    '&.Mui-focused': {
+                      borderColor: errors.whatsapp ? '#ff6b6b' : '#16a34a',
+                    },
+                  },
+                  '& .MuiOutlinedInput-input::placeholder': {
+                    color: '#888',
+                    opacity: 1,
+                  },
+                  '& .MuiFormHelperText-root': {
+                    color: errors.whatsapp ? '#ff6b6b' : '#94a3b8',
                     marginTop: '4px',
                   },
                 }}
@@ -466,12 +487,12 @@ export default function SignUpPage() {
                 helperText={errors.password}
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#1a1a1a',
+                    backgroundColor: '#111827',
                     borderRadius: '8px',
-                    border: errors.password ? '1px solid #ff6b6b' : '1px solid rgba(255, 255, 255, 0.2)',
+                    border: errors.password ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
                     color: '#fff',
                     '&:hover': {
-                      borderColor: errors.password ? '#ff6b6b' : 'rgba(255, 255, 255, 0.3)',
+                      borderColor: errors.password ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
                     },
                     '&.Mui-focused': {
                       borderColor: errors.password ? '#ff6b6b' : '#16a34a',
@@ -482,7 +503,7 @@ export default function SignUpPage() {
                     opacity: 1,
                   },
                   '& .MuiFormHelperText-root': {
-                    color: errors.password ? '#ff6b6b' : '#16a34a',
+                    color: errors.password ? '#ff6b6b' : '#94a3b8',
                     marginTop: '4px',
                   },
                 }}
@@ -514,12 +535,12 @@ export default function SignUpPage() {
                 helperText={errors.confirmPassword}
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#1a1a1a',
+                    backgroundColor: '#111827',
                     borderRadius: '8px',
-                    border: errors.confirmPassword ? '1px solid #ff6b6b' : '1px solid rgba(255, 255, 255, 0.2)',
+                    border: errors.confirmPassword ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
                     color: '#fff',
                     '&:hover': {
-                      borderColor: errors.confirmPassword ? '#ff6b6b' : 'rgba(255, 255, 255, 0.3)',
+                      borderColor: errors.confirmPassword ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
                     },
                     '&.Mui-focused': {
                       borderColor: errors.confirmPassword ? '#ff6b6b' : '#16a34a',
@@ -530,7 +551,7 @@ export default function SignUpPage() {
                     opacity: 1,
                   },
                   '& .MuiFormHelperText-root': {
-                    color: errors.confirmPassword ? '#ff6b6b' : '#16a34a',
+                    color: errors.confirmPassword ? '#ff6b6b' : '#94a3b8',
                     marginTop: '4px',
                   },
                 }}

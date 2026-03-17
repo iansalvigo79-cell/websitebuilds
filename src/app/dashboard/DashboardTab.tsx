@@ -16,31 +16,41 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import AddIcon from '@mui/icons-material/Add';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import PrizeWidget from './PrizeWidget';
 import './DashboardTab.css';
 import ModernLoader from '@/components/ui/ModernLoader';
 // import './DashboardTab.css';
 
-// Fallback logo mapping for competitions without logo_url in DB
-const COMPETITION_LOGO_FALLBACK: Record<string, string> = {
-  'England Premier League': '/assets/images/League logo/england-premier-league-logo.jpg',
-  'Premier League': '/assets/images/League logo/england-premier-league-logo.jpg',
-  'Spain La Liga': '/assets/images/League logo/spain-la-liga.png',
-  'La Liga': '/assets/images/League logo/spain-la-liga.png',
-  'Europe UEFA Champions League': '/assets/images/League logo/europe-uefa-champions-league.png',
-  'UEFA Champions League': '/assets/images/League logo/europe-uefa-champions-league.png',
-  'Champions League': '/assets/images/League logo/europe-uefa-champions-league.png',
-  'Europe UEFA Europa League': '/assets/images/League logo/europe-uefa-europa-league.png',
-  'UEFA Europa League': '/assets/images/League logo/europe-uefa-europa-league.png',
-  'Europa League': '/assets/images/League logo/europe-uefa-europa-league.png',
-  'Europe UEFA Europa Conference League': '/assets/images/League logo/europe-uefa-europa-conference-league.png',
-  'UEFA Europa Conference League': '/assets/images/League logo/europe-uefa-europa-conference-league.png',
-  'Europa Conference League': '/assets/images/League logo/europe-uefa-europa-conference-league.png',
-  'International WC Qualification Europe': '/assets/images/League logo/international-wc-qualification-europe.png',
-  'WC Qualification Europe': '/assets/images/League logo/international-wc-qualification-europe.png',
-  'World Cup Qualification Europe': '/assets/images/League logo/international-wc-qualification-europe.png',
+// Fallback emoji mapping for competitions without an icon in DB
+const COMPETITION_ICON_FALLBACK: Record<string, string> = {
+  'England Premier League': '🏴',
+  'Premier League': '🏴',
+  'UEFA Champions League': '⭐',
+  'Champions League': '⭐',
+  'Europe UEFA Champions League': '⭐',
+  'UEFA Europa League': '🌟',
+  'Europa League': '🌟',
+  'Europe UEFA Europa League': '🌟',
+  'UEFA Europa Conference League': '🌍',
+  'Europa Conference League': '🌍',
+  'Europe UEFA Europa Conference League': '🌍',
+  'Spain La Liga': '🇪🇸',
+  'La Liga': '🇪🇸',
+  'Germany Bundesliga': '🇩🇪',
+  'Bundesliga': '🇩🇪',
+  'France Ligue 1': '🇫🇷',
+  'Ligue 1': '🇫🇷',
+  'Italy Serie A': '🇮🇹',
+  'Serie A': '🇮🇹',
+  'Brazil Serie A': '🇧🇷',
+  'World Cup': '🏆',
+  'International / Qualifying': '🌐',
+  'International WC Qualification Europe': '🌐',
+  'WC Qualification Europe': '🌐',
+  'World Cup Qualification Europe': '🌐',
+  'International': '🌐',
+  'Qualifying': '🌐',
 };
 
 interface GameWithTeams extends Game {
@@ -73,9 +83,11 @@ export default function DashboardTab() {
   const [now, setNow] = useState(() => new Date());
   const [isPaidUser, setIsPaidUser] = useState(false);
 
-  // Helper: get competition logo (DB url or local fallback)
-  const getCompetitionLogo = (competition: Competition) => {
-    return competition.logo_url || COMPETITION_LOGO_FALLBACK[competition.name] || '/assets/images/logo.png';
+  // Helper: get competition icon (DB icon or emoji fallback)
+  const getCompetitionIcon = (competition: Competition | null | undefined) => {
+    if (!competition) return '⚽';
+    const icon = competition.icon?.trim();
+    return icon || COMPETITION_ICON_FALLBACK[competition.name] || '⚽';
   };
 
   // ─── Fetch competitions on mount ───
@@ -785,14 +797,19 @@ export default function DashboardTab() {
                     }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Box sx={{ width: 48, height: 48, position: 'relative', flexShrink: 0, borderRadius: '50%', overflow: 'hidden' }}>
-                        <Image
-                          src={getCompetitionLogo(competition)}
-                          alt={competition.name}
-                          fill
-                          style={{ objectFit: 'cover' }}
-                          sizes="48px"
-                        />
+                      <Box
+                        sx={{
+                          width: 48,
+                          height: 48,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          borderRadius: '50%',
+                          backgroundColor: 'rgba(255,255,255,0.04)',
+                        }}
+                      >
+                        <span style={{ fontSize: '1.8rem' }}>{getCompetitionIcon(competition)}</span>
                       </Box>
                       <Box>
                         <Typography sx={{ color: '#fff', fontSize: '0.9rem', fontWeight: 600 }}>{competition.name}</Typography>
@@ -814,11 +831,6 @@ export default function DashboardTab() {
           {/* Title */}
           <Typography variant="h4" sx={{ fontWeight: 900, color: '#00a54e', textTransform: 'uppercase' }}>
             {selectedCompetition?.name || 'Competition'} Predictions
-            {activeSeason && (
-              <Typography component="span" sx={{ fontSize: '1rem', fontWeight: 400, color: '#999', ml: 2 }}>
-                {activeSeason.name}
-              </Typography>
-            )}
           </Typography>
 
           {/* Loading matches indicator */}
@@ -851,14 +863,18 @@ export default function DashboardTab() {
                 >
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     {selectedCompetition && (
-                      <Box sx={{ width: 24, height: 24, position: 'relative', borderRadius: '50%', overflow: 'hidden' }}>
-                        <Image
-                          src={getCompetitionLogo(selectedCompetition)}
-                          alt={selectedCompetition.name}
-                          fill
-                          style={{ objectFit: 'cover' }}
-                          sizes="24px"
-                        />
+                      <Box
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '50%',
+                          backgroundColor: 'rgba(255,255,255,0.08)',
+                        }}
+                      >
+                        <span style={{ fontSize: '1.8rem' }}>{getCompetitionIcon(selectedCompetition)}</span>
                       </Box>
                     )}
                     <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 700 }}>

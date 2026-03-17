@@ -134,7 +134,7 @@ export async function calculatePointsForMatchDays(matchDayId?: string): Promise<
 
     const { data: predictions, error: fetchErr } = await supabase
       .from('predictions')
-      .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+      .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
       .eq('match_day_id', md.id);
 
     if (fetchErr) continue;
@@ -145,10 +145,10 @@ export async function calculatePointsForMatchDays(matchDayId?: string): Promise<
         update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, actual) : null;
       }
       if (htGoals != null) {
-        update.ht_goals_points = p.predicted_ht_goals != null ? calculatePoints(p.predicted_ht_goals, htGoals) : null;
+        update.ht_goals_points = p.predicted_half_time_goals != null ? calculatePoints(p.predicted_half_time_goals, htGoals) : null;
       }
       if (totalCorners != null) {
-        update.corners_points = p.predicted_total_corners != null ? calculatePoints(p.predicted_total_corners, totalCorners) : null;
+        update.corners_points = p.predicted_ft_corners != null ? calculatePoints(p.predicted_ft_corners, totalCorners) : null;
       }
       if (htCorners != null) {
         update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;

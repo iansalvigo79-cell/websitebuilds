@@ -1,6 +1,9 @@
 export interface Profile {
   id: string;
   display_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  whatsapp?: string | null;
   team_id: string;
   team_name?: string;
   stripe_customer_id: string | null;
@@ -74,7 +77,7 @@ export interface Competition {
   name: string;
   short_name: string | null;
   country: string | null;
-  logo_url: string | null;
+  icon: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -84,8 +87,8 @@ export interface Prediction {
   user_id: string;
   match_day_id: string;
   predicted_total_goals: number;
-  predicted_ht_goals?: number | null;
-  predicted_total_corners?: number | null;
+  predicted_half_time_goals?: number | null;
+  predicted_ft_corners?: number | null;
   predicted_ht_corners?: number | null;
   points: number | null;
   ht_goals_points?: number | null;

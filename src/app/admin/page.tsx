@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Checkbox, FormControlLabel, Switch } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Switch } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -46,16 +46,16 @@ export default function AdminPage() {
   const [seasonActionId, setSeasonActionId] = useState<string | null>(null);
   const [seasonDeleteId, setSeasonDeleteId] = useState<string | null>(null);
   const [isCalculatingPoints, setIsCalculatingPoints] = useState(false);
-  const [matchDaysForScores, setMatchDaysForScores] = useState<{ id: string; match_date: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null; season_name?: string }[]>([]);
+  const [matchDaysForScores, setMatchDaysForScores] = useState<{ id: string; name?: string | null; match_date: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null; season_name?: string }[]>([]);
   const [scoresLoading, setScoresLoading] = useState(false);
   const [scoreInputs, setScoreInputs] = useState<Record<string, { ftGoals: string; htGoals: string; totalCorners: string; htCorners: string }>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [computingId, setComputingId] = useState<string | null>(null);
   const [seasons, setSeasons] = useState<{ id: string; name: string; start_date: string; end_date: string; is_active: boolean }[]>([]);
   const [seasonsLoading, setSeasonsLoading] = useState(false);
-  const [competitions, setCompetitions] = useState<{ id: string; name: string; short_name: string | null; country: string | null; is_active: boolean }[]>([]);
+  const [competitions, setCompetitions] = useState<{ id: string; name: string; short_name: string | null; country: string | null; icon?: string | null; is_active: boolean }[]>([]);
   const [competitionsLoading, setCompetitionsLoading] = useState(false);
-  const [competitionForm, setCompetitionForm] = useState({ name: '', shortName: '', country: '' });
+  const [competitionForm, setCompetitionForm] = useState({ name: '', shortName: '', country: '', icon: '' });
   const [creatingCompetition, setCreatingCompetition] = useState(false);
   const [competitionActionId, setCompetitionActionId] = useState<string | null>(null);
   const [matchDaysList, setMatchDaysList] = useState<{ id: string; name?: string | null; match_date: string; cutoff_at: string; season_id?: string; season_name?: string }[]>([]);
@@ -63,7 +63,7 @@ export default function AdminPage() {
   const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; match_day_date?: string; home_team_name: string; away_team_name: string; competition_short_name?: string | null; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
   // creation helpers for games tab
-  const [availableMatchDays, setAvailableMatchDays] = useState<{ id: string; match_date: string; season_name: string }[]>([]);
+  const [availableMatchDays, setAvailableMatchDays] = useState<{ id: string; name?: string | null; match_date: string; season_name: string }[]>([]);
   const [teamsList, setTeamsList] = useState<{ id: string; name: string }[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(false);
   const [teamNameInput, setTeamNameInput] = useState('');
@@ -150,7 +150,7 @@ export default function AdminPage() {
     try {
       const { data: mdList, error: mdErr } = await supabase
         .from('match_days')
-        .select('id, match_date, actual_total_goals, ht_goals, total_corners, ht_corners, season_id, seasons(name)')
+        .select('id, name, match_date, actual_total_goals, ht_goals, total_corners, ht_corners, season_id, seasons(name)')
         .order('match_date', { ascending: false })
         .limit(60);
       if (mdErr) {
@@ -160,6 +160,7 @@ export default function AdminPage() {
       }
       const rows = (mdList || []).map((md: any) => ({
         id: md.id,
+        name: md.name ?? null,
         match_date: md.match_date,
         actual_total_goals: md.actual_total_goals,
         ht_goals: md.ht_goals ?? null,
@@ -213,13 +214,13 @@ export default function AdminPage() {
     try {
       const { data, error } = await supabase
         .from('competitions')
-        .select('id, name, short_name, country, is_active')
+        .select('id, name, short_name, country, icon, is_active')
         .order('name', { ascending: true });
       if (error) {
         toast.error(error.message);
         setCompetitions([]);
       } else {
-        setCompetitions((data || []) as { id: string; name: string; short_name: string | null; country: string | null; is_active: boolean }[]);
+        setCompetitions((data || []) as { id: string; name: string; short_name: string | null; country: string | null; icon?: string | null; is_active: boolean }[]);
       }
     } finally {
       setCompetitionsLoading(false);
@@ -311,7 +312,7 @@ export default function AdminPage() {
   const fetchMatchDaysForGames = useCallback(async () => {
     const { data, error } = await supabase
       .from('match_days')
-      .select('id, match_date, season_id, seasons(name)')
+      .select('id, name, match_date, season_id, seasons(name)')
       .eq('is_open', true)
       .order('match_date', { ascending: true });
     if (error) {
@@ -320,6 +321,7 @@ export default function AdminPage() {
     } else {
       setAvailableMatchDays((data || []).map((md: any) => ({
         id: md.id,
+        name: md.name ?? null,
         match_date: md.match_date,
         season_name: md.seasons?.name ?? '-',
       })));
@@ -501,7 +503,7 @@ export default function AdminPage() {
     try {
       const { data: predictions, error } = await supabase
         .from('predictions')
-        .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+        .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
         .eq('match_day_id', matchDayId);
       if (error) {
         toast.error(error.message);
@@ -520,10 +522,10 @@ export default function AdminPage() {
             update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, ftGoals) : null;
           }
           if (htGoals != null) {
-            update.ht_goals_points = p.predicted_ht_goals != null ? calculatePoints(p.predicted_ht_goals, htGoals) : null;
+            update.ht_goals_points = p.predicted_half_time_goals != null ? calculatePoints(p.predicted_half_time_goals, htGoals) : null;
           }
           if (totalCorners != null) {
-            update.corners_points = p.predicted_total_corners != null ? calculatePoints(p.predicted_total_corners, totalCorners) : null;
+            update.corners_points = p.predicted_ft_corners != null ? calculatePoints(p.predicted_ft_corners, totalCorners) : null;
           }
           if (htCorners != null) {
             update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;
@@ -555,7 +557,7 @@ export default function AdminPage() {
         const { error: deactivateError } = await supabase
           .from('seasons')
           .update({ is_active: false })
-          .neq('id', 'placeholder');
+          .eq('is_active', true);
         if (deactivateError) {
           console.error('Supabase Season Deactivate Error (admin):', deactivateError);
           toast.error('Error deactivating seasons: ' + deactivateError.message);
@@ -734,6 +736,21 @@ export default function AdminPage() {
       return;
     }
     try {
+      const { data: existingMatchDay, error: existingError } = await supabase
+        .from('match_days')
+        .select('id')
+        .eq('season_id', matchDayForm.seasonId)
+        .eq('match_date', matchDayForm.matchDate)
+        .limit(1)
+        .maybeSingle();
+      if (existingError) {
+        toast.error('Error checking match day: ' + existingError.message);
+        return;
+      }
+      if (existingMatchDay) {
+        toast.error('Match day already exists for this season and date.');
+        return;
+      }
       const { error } = await supabase.from('match_days').insert({
         season_id: matchDayForm.seasonId,
         match_date: matchDayForm.matchDate,
@@ -742,7 +759,10 @@ export default function AdminPage() {
         is_open: true,
       });
       if (error) {
-        toast.error('Error creating match day: ' + error.message);
+        const message = error.message.includes('match_days_season_date_unique')
+          ? 'Match day already exists for this season and date.'
+          : error.message;
+        toast.error('Error creating match day: ' + message);
         return;
       }
       toast.success('Match day created');
@@ -751,6 +771,25 @@ export default function AdminPage() {
       fetchMatchDaysList();
     } catch (err) {
       console.error('Unexpected Error (admin createMatchDay):', err);
+      toast.error('An error occurred');
+    }
+  };
+
+  const handleDeleteMatchDay = async (matchDayId: string) => {
+    if (!window.confirm('Delete this match day?')) return;
+    try {
+      const { error } = await supabase
+        .from('match_days')
+        .delete()
+        .eq('id', matchDayId);
+      if (error) {
+        toast.error('Error deleting match day: ' + error.message);
+        return;
+      }
+      toast.success('Match day deleted');
+      fetchMatchDaysList();
+    } catch (err) {
+      console.error('Unexpected Error (admin deleteMatchDay):', err);
       toast.error('An error occurred');
     }
   };
@@ -790,6 +829,7 @@ export default function AdminPage() {
       toast.error('Competition name is required');
       return;
     }
+    const icon = competitionForm.icon.trim().slice(0, 4) || '⚽';
     setCreatingCompetition(true);
     try {
       const { error } = await supabase
@@ -798,13 +838,14 @@ export default function AdminPage() {
           name,
           short_name: competitionForm.shortName.trim() || null,
           country: competitionForm.country.trim() || null,
+          icon,
         });
       if (error) {
         toast.error('Error adding competition: ' + error.message);
         return;
       }
       toast.success('Competition added');
-      setCompetitionForm({ name: '', shortName: '', country: '' });
+      setCompetitionForm({ name: '', shortName: '', country: '', icon: '' });
       fetchCompetitionsList();
     } catch (err) {
       console.error('Unexpected Error (admin addCompetition):', err);
@@ -1253,6 +1294,7 @@ export default function AdminPage() {
                   <TextField
                     label="Name"
                     placeholder="Premier League"
+                    size="small"
                     value={competitionForm.name}
                     onChange={(e) => setCompetitionForm((p) => ({ ...p, name: e.target.value }))}
                     fullWidth
@@ -1265,6 +1307,7 @@ export default function AdminPage() {
                   <TextField
                     label="Short Name"
                     placeholder="PL"
+                    size="small"
                     value={competitionForm.shortName}
                     onChange={(e) => setCompetitionForm((p) => ({ ...p, shortName: e.target.value }))}
                     fullWidth
@@ -1275,8 +1318,23 @@ export default function AdminPage() {
                     }}
                   />
                   <TextField
+                    label="ICON (emoji)"
+                    placeholder="e.g. 🇺🇸 🏆 ⭐"
+                    size="small"
+                    value={competitionForm.icon}
+                    onChange={(e) => setCompetitionForm((p) => ({ ...p, icon: e.target.value }))}
+                    fullWidth
+                    inputProps={{ maxLength: 4 }}
+                    sx={{
+                      input: { color: '#fff' },
+                      label: { color: '#94a3b8' },
+                      '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' },
+                    }}
+                  />
+                  <TextField
                     label="Country"
                     placeholder="England"
+                    size="small"
                     value={competitionForm.country}
                     onChange={(e) => setCompetitionForm((p) => ({ ...p, country: e.target.value }))}
                     fullWidth
@@ -1295,11 +1353,13 @@ export default function AdminPage() {
                       color: '#fff',
                       fontWeight: 700,
                       textTransform: 'none',
-                      px: 3,
+                      px: 2.5,
+                      py: 1.25,
+                      whiteSpace: 'nowrap',
                       '&:hover': { backgroundColor: '#15803d' },
                     }}
                   >
-                    {creatingCompetition ? 'Adding...' : '+ Add Competition'}
+                    {creatingCompetition ? 'Adding...' : '+ Add'}
                   </Button>
                 </Stack>
               </Stack>
@@ -1321,6 +1381,7 @@ export default function AdminPage() {
                   <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Icon</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Short Name</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Country</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Status</TableCell>
@@ -1331,6 +1392,9 @@ export default function AdminPage() {
                     {competitions.map((c) => (
                       <TableRow key={c.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{c.name}</TableCell>
+                        <TableCell>
+                          <span style={{ fontSize: '1.4rem' }}>{c.icon || '⚽'}</span>
+                        </TableCell>
                         <TableCell>{c.short_name || '-'}</TableCell>
                         <TableCell>{c.country || '-'}</TableCell>
                         <TableCell>
@@ -1429,6 +1493,8 @@ export default function AdminPage() {
                         color: '#fff',
                         fontWeight: 700,
                         textTransform: 'none',
+                        px: 2.5,
+                        whiteSpace: 'nowrap',
                         '&:hover': { backgroundColor: '#15803d' },
                       }}
                     >
@@ -1504,36 +1570,57 @@ export default function AdminPage() {
                           )}
                         </TableCell>
                         <TableCell align="right">
-                          {editingMatchDayId === md.id ? (
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            {editingMatchDayId === md.id ? (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleSaveMatchDayName(md.id)}
+                                disabled={savingMatchDayNameId === md.id}
+                                sx={{
+                                  borderColor: '#16a34a',
+                                  color: '#16a34a',
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  px: 2,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {savingMatchDayNameId === md.id ? 'Saving...' : 'Save'}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleEditMatchDayName(md)}
+                                sx={{
+                                  borderColor: 'rgba(148, 163, 184, 0.5)',
+                                  color: '#9ca3af',
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  px: 2,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            )}
                             <Button
                               size="small"
                               variant="outlined"
-                              onClick={() => handleSaveMatchDayName(md.id)}
-                              disabled={savingMatchDayNameId === md.id}
+                              onClick={() => handleDeleteMatchDay(md.id)}
                               sx={{
-                                borderColor: '#16a34a',
-                                color: '#16a34a',
+                                borderColor: 'rgba(239, 68, 68, 0.6)',
+                                color: '#ef4444',
                                 textTransform: 'none',
                                 fontWeight: 700,
+                                px: 2,
+                                whiteSpace: 'nowrap',
                               }}
                             >
-                              {savingMatchDayNameId === md.id ? 'Saving...' : 'Save'}
+                              Remove
                             </Button>
-                          ) : (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => handleEditMatchDayName(md)}
-                              sx={{
-                                borderColor: 'rgba(148, 163, 184, 0.5)',
-                                color: '#9ca3af',
-                                textTransform: 'none',
-                                fontWeight: 700,
-                              }}
-                            >
-                              Edit
-                            </Button>
-                          )}
+                          </Stack>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1624,7 +1711,7 @@ export default function AdminPage() {
                 >
                   {availableMatchDays.map((md) => (
                     <MenuItem key={md.id} value={md.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
-                      {md.season_name} - {md.match_date}
+                      {md.season_name} - {md.name ? `${md.name} · ${md.match_date}` : md.match_date}
                     </MenuItem>
                   ))}
                 </TextField>
@@ -1989,6 +2076,7 @@ export default function AdminPage() {
                   <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Match Date</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Matchday</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Season</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#16a34a' }}>FT Goals</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#3b82f6' }}>HT Goals</TableCell>
@@ -2001,6 +2089,7 @@ export default function AdminPage() {
                     {matchDaysForScores.map((md) => (
                       <TableRow key={md.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{md.match_date}</TableCell>
+                        <TableCell>{md.name || '-'}</TableCell>
                         <TableCell>{md.season_name}</TableCell>
                         <TableCell>
                           <TextField
@@ -2595,23 +2684,6 @@ export default function AdminPage() {
                   input: { color: '#fff' }, 
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
-                }}
-              />
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={setActiveOnCreate}
-                    onChange={(e) => setSetActiveOnCreate(e.target.checked)}
-                    sx={{
-                      color: '#16a34a',
-                      '&.Mui-checked': { color: '#16a34a' },
-                    }}
-                  />
-                }
-                label="Set as active season"
-                sx={{
-                  color: '#e2e8f0',
-                  '& .MuiFormControlLabel-label': { color: '#e2e8f0', fontWeight: 600 },
                 }}
               />
               <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>

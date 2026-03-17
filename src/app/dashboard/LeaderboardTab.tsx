@@ -52,11 +52,60 @@ export interface MatchDayOption {
   label: string;
 }
 
+type ProfileDisplay = {
+  display_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+};
+
 // -- Helper: resolve display name with fallback chain --
 // Never returns 'Unknown' -- falls back to email prefix or 'Player'
-function resolveDisplayName(display_name: string | null | undefined): string {
-  if (display_name && display_name.trim() !== '') return display_name.trim();
+function resolveDisplayName(profile?: ProfileDisplay | null): string {
+  if (profile?.display_name?.trim()) return profile.display_name.trim();
+  if (profile?.first_name || profile?.last_name) {
+    return `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+  }
+  if (profile?.email) return profile.email.split('@')[0];
   return 'Player';
+}
+
+async function fetchProfileMap(userIds: string[]): Promise<Map<string, ProfileDisplay>> {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return new Map();
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) throw new Error('No session token');
+
+    const res = await fetch('/api/leaderboard/profiles', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ userIds: uniqueIds }),
+    });
+
+    if (!res.ok) throw new Error('Profile lookup failed');
+    const payload = await res.json();
+    const map = new Map<string, ProfileDisplay>();
+    Object.entries(payload?.profiles || {}).forEach(([id, display_name]) => {
+      map.set(id, { display_name: typeof display_name === 'string' ? display_name : null });
+    });
+    return map;
+  } catch (err) {
+    const profileResult = await supabase
+      .from('profiles')
+      .select('id, display_name, first_name, last_name, email')
+      .in('id', uniqueIds);
+    const profileList = profileResult.data;
+    if ((profileResult as any).error) console.error('Leaderboard profiles fetch error:', (profileResult as any).error);
+    return new Map(
+      (profileList || []).map((p: any) => [p.id, { display_name: p.display_name, first_name: p.first_name, last_name: p.last_name, email: p.email }])
+    );
+  }
 }
 
 function getPeriodBounds(period: LeaderboardPeriod): { start: Date; end: Date } {
@@ -162,17 +211,7 @@ export default function LeaderboardTab() {
 
       const userIds = [...new Set(predictionsRows.map((p: any) => p.user_id).filter(Boolean))] as string[];
 
-      // fetch email so we can fall back when display_name is blank
-      const profileResult = userIds.length
-        ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
-        : { data: [] as { id: string; display_name: string | null; }[] };
-      const profileList = profileResult.data;
-      if ((profileResult as any).error) console.error('Leaderboard profiles fetch error:', (profileResult as any).error);
-
-      // store both display_name and email in profileMap
-      const profileMap = new Map(
-        (profileList || []).map((p: any) => [p.id, { display_name: p.display_name }])
-      );
+      const profileMap = userIds.length ? await fetchProfileMap(userIds) : new Map<string, ProfileDisplay>();
 
       const rawData = predictionsRows.map((p: any) => ({
         user_id: p.user_id,
@@ -201,7 +240,7 @@ export default function LeaderboardTab() {
         if (!grouped[userId]) {
           const profileData = profileMap.get(userId);
           grouped[userId] = {
-            display_name: resolveDisplayName(profileData?.display_name),
+            display_name: resolveDisplayName(profileData),
             total_points: 0,
             predictions_count: 0,
             exact_count: 0,
@@ -396,15 +435,7 @@ export default function LeaderboardTab() {
 
         const userIds = [...new Set((preds as any[]).map((p) => p.user_id).filter(Boolean))] as string[];
 
-        // fetch email for matchday leaderboard
-        const profileResult = userIds.length
-          ? await supabase.from('profiles').select('id, display_name').in('id', userIds)
-          : { data: [] as { id: string; display_name: string | null; }[] };
-        const profileList = profileResult.data;
-        // store both fields in profileMap
-        const profileMap = new Map(
-          (profileList || []).map((p: any) => [p.id, { display_name: p.display_name }])
-        );
+        const profileMap = userIds.length ? await fetchProfileMap(userIds) : new Map<string, ProfileDisplay>();
 
         const computePoints = (predVal: number | null | undefined, actualVal: number | null | undefined, stored: number | null | undefined) => {
           if (stored != null) return stored;
@@ -415,13 +446,13 @@ export default function LeaderboardTab() {
         const withDiff = (preds as any[]).map((p) => {
           const profileData = profileMap.get(p.user_id);
           const ftPoints = computePoints(p.predicted_total_goals, actual, p.points);
-          const htPoints = htGoals != null ? computePoints(p.predicted_ht_goals, htGoals, p.ht_goals_points) : 0;
-          const cornersPoints = totalCorners != null ? computePoints(p.predicted_total_corners, totalCorners, p.corners_points) : 0;
+          const htPoints = htGoals != null ? computePoints(p.predicted_half_time_goals, htGoals, p.ht_goals_points) : 0;
+          const cornersPoints = totalCorners != null ? computePoints(p.predicted_ft_corners, totalCorners, p.corners_points) : 0;
           const htCornersPoints = htCorners != null ? computePoints(p.predicted_ht_corners, htCorners, p.ht_corners_points) : 0;
           const totalPoints = ftPoints + htPoints + cornersPoints + htCornersPoints;
           return {
             user_id: p.user_id,
-            display_name: resolveDisplayName(profileData?.display_name),
+            display_name: resolveDisplayName(profileData),
             predicted: p.predicted_total_goals,
             points: totalPoints,
             ftPoints,

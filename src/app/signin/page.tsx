@@ -90,15 +90,19 @@ export default function SignInPage() {
       if (data.user) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, first_name, last_name, display_name')
           .eq('id', data.user.id)
           .single();
 
         toast.success('Success');
 
         setTimeout(() => {
-          if (profile?.role === 1 || profile?.role === '1') {
+          const isAdmin = profile?.role === 1 || profile?.role === '1';
+          const isIncomplete = !profile?.first_name || !profile?.last_name;
+          if (isAdmin) {
             router.push('/admin');
+          } else if (isIncomplete) {
+            router.push('/profile?setup=true');
           } else {
             router.push('/dashboard');
           }

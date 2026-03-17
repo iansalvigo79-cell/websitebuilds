@@ -35,6 +35,7 @@ interface GameRow {
 
 interface MatchDayWithMeta extends MatchDay {
   competitionName: string;
+  competitionIcon?: string | null;
   matchDayLabel: string;
   games: GameRow[];
   seasonIsActive: boolean;
@@ -61,6 +62,11 @@ function formatLongDate(dateString: string | null | undefined) {
 function formatShortDate(dateString: string | null | undefined) {
   if (!dateString) return '';
   return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function getCompetitionIcon(icon?: string | null) {
+  const trimmed = icon?.trim();
+  return trimmed ? trimmed : '⚽';
 }
 
 function PredictionRow({
@@ -171,7 +177,7 @@ function UpgradeCard({
   );
 }
 
-// â”€â”€ Isolated component for useSearchParams â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  ”  ”  Isolated component for useSearchParams  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
 // MUST be its own component wrapped directly in <Suspense>
 function SearchParamsHandler({
   onMatchDayId,
@@ -198,7 +204,7 @@ function SearchParamsHandler({
   return null;
 }
 
-// â”€â”€ Main predictions content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  ”  ”  Main predictions content  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
 function PredictionsContent() {
   const router = useRouter();
 
@@ -214,7 +220,7 @@ function PredictionsContent() {
   const [isSaving, setIsSaving]                   = useState(false);
   const [isPaidUser, setIsPaidUser]               = useState(false);
 
-  // â”€â”€ Fetch profile / paid status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  //  ”  ”  Fetch profile / paid status  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
   const fetchProfilePaidStatus = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -223,7 +229,7 @@ function PredictionsContent() {
         .from('profiles')
         .select('account_type, stripe_subscription_id')
         .eq('id', user.id)
-        .single();                              // â† use single() not maybeSingle()
+        .single();                              //  † use single() not maybeSingle()
 
       if (error) {
         console.error('Profile fetch error:', error.message);
@@ -231,8 +237,8 @@ function PredictionsContent() {
       }
 
       const paid =
-        profile?.account_type === 'paid' ||     // â† primary check
-        Boolean(profile?.stripe_subscription_id); // â† fallback check
+        profile?.account_type === 'paid' ||     //  † primary check
+        Boolean(profile?.stripe_subscription_id); //  † fallback check
 
       console.log('account_type:', profile?.account_type, '| isPaid:', paid);
       setIsPaidUser(paid);
@@ -254,7 +260,7 @@ function PredictionsContent() {
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [fetchProfilePaidStatus]);
 
-  // â”€â”€ Fetch match days â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  //  ”  ”  Fetch match days  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
   const fetchMatchDays = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -272,12 +278,12 @@ function PredictionsContent() {
       const competitionsData = competitionIds.length
         ? await supabase
           .from('competitions')
-          .select('id, name')
+          .select('id, name, icon')
           .in('id', competitionIds)
-        : { data: [] as { id: string; name: string }[] };
+        : { data: [] as { id: string; name: string; icon?: string | null }[] };
 
       const competitionsMap = new Map(
-        (competitionsData.data || []).map((c: { id: string; name: string }) => [c.id, c.name])
+        (competitionsData.data || []).map((c: { id: string; name: string; icon?: string | null }) => [c.id, { name: c.name, icon: c.icon ?? null }])
       );
 
       const allMatchDays: MatchDayWithMeta[] = [];
@@ -296,7 +302,9 @@ function PredictionsContent() {
 
         if (mdError || !mdList?.length) continue;
 
-        const competitionName = competitionsMap.get(season.league_id) || 'Competition';
+        const competitionInfo = competitionsMap.get(season.league_id);
+        const competitionName = competitionInfo?.name || 'Competition';
+        const competitionIcon = competitionInfo?.icon ?? null;
         const seasonName   = season.name || '';
         const matchDayNum  = seasonName.replace(/\D/g, '') || mdList.length;
 
@@ -346,6 +354,7 @@ function PredictionsContent() {
           allMatchDays.push({
             ...md,
             competitionName,
+            competitionIcon,
             matchDayLabel: `${competitionName} - Matchday ${matchDayNum}`,
             games,
             name: (md as { name?: string | null }).name ?? null,
@@ -377,7 +386,7 @@ function PredictionsContent() {
     fetchMatchDays();
   }, [fetchMatchDays]);
 
-  // â”€â”€ Load existing prediction for selected matchday â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  //  ”  ”  Load existing prediction for selected matchday  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
   useEffect(() => {
     if (!selectedMatchDay) { setFtGoals(''); return; }
     let cancelled = false;
@@ -386,14 +395,14 @@ function PredictionsContent() {
       if (!user || cancelled) return;
       const { data } = await supabase
         .from('predictions')
-        .select('predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+        .select('predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
         .eq('user_id', user.id)
         .eq('match_day_id', selectedMatchDay.id)
         .maybeSingle();
       if (cancelled) return;
       setFtGoals(data?.predicted_total_goals != null ? String(data.predicted_total_goals) : '');
-      setHtGoals(data?.predicted_ht_goals != null ? String(data.predicted_ht_goals) : '');
-      setFtCorners(data?.predicted_total_corners != null ? String(data.predicted_total_corners) : '');
+      setHtGoals(data?.predicted_half_time_goals != null ? String(data.predicted_half_time_goals) : '');
+      setFtCorners(data?.predicted_ft_corners != null ? String(data.predicted_ft_corners) : '');
       setHtCorners(data?.predicted_ht_corners != null ? String(data.predicted_ht_corners) : '');
     })();
     return () => { cancelled = true; };
@@ -419,7 +428,7 @@ function PredictionsContent() {
     return sections;
   })() : [];
 
-  // â”€â”€ Save prediction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Save prediction
   const handleUpdatePrediction = async () => {
     if (!selectedMatchDay) return;
     if (isSeasonClosed) { toast.error('Season has ended. Predictions are locked.'); return; }
@@ -457,17 +466,17 @@ function PredictionsContent() {
         setIsSaving(false);
         return;
       }
-      const res = await fetch('/api/predictions/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({
-          matchDayId: selectedMatchDay.id,
-          predicted_total_goals: value,
-          predicted_ht_goals: htVal,
-          predicted_total_corners: cornersVal,
-          predicted_ht_corners: htCornersVal,
-        }),
-      });
+        const res = await fetch('/api/predictions/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({
+            matchDayId: selectedMatchDay.id,
+            predicted_total_goals: value,
+            predicted_half_time_goals: htVal,
+            predicted_ft_corners: cornersVal,
+            predicted_ht_corners: htCornersVal,
+          }),
+        });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(data.error || 'Failed to save prediction');
@@ -484,7 +493,7 @@ function PredictionsContent() {
   return (
     <Box sx={{ backgroundColor: '#24262F', minHeight: '100vh', py: 4 }}>
 
-      {/* â”€â”€ useSearchParams isolated here in its own Suspense â”€â”€ */}
+      {/*useSearchParams isolated here in its own Suspense*/}
       <Suspense fallback={null}>
         <SearchParamsHandler
           onMatchDayId={setMatchDayIdFromUrl}
@@ -571,13 +580,16 @@ function PredictionsContent() {
                           '&:hover': { backgroundColor: 'rgba(255,255,255,0.05)' },
                         }}
                       >
-                        <Box>
-                          <Typography sx={{ color: '#fff', fontSize: '1rem', fontWeight: 800 }}>
-                            {md.name || md.matchDayLabel}
-                          </Typography>
-                          <Typography sx={{ color: '#999', fontSize: '0.8rem' }}>
-                            {formatShortDate(md.match_date)}
-                          </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <span style={{ fontSize: '1.8rem' }}>{getCompetitionIcon(md.competitionIcon)}</span>
+                          <Box>
+                            <Typography sx={{ color: '#fff', fontSize: '1rem', fontWeight: 800 }}>
+                              {md.name || md.matchDayLabel}
+                            </Typography>
+                            <Typography sx={{ color: '#999', fontSize: '0.8rem' }}>
+                              {formatShortDate(md.match_date)}
+                            </Typography>
+                          </Box>
                         </Box>
                         {isSelected && <CheckCircleIcon sx={{ color: '#16a34a', fontSize: '1.2rem' }} />}
                       </Box>
@@ -605,20 +617,25 @@ function PredictionsContent() {
                   {/* Match day header */}
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
                     <Box>
-                      {selectedMatchDay.name ? (
-                        <>
-                          <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.6rem', md: '2rem' } }}>
-                            {selectedMatchDay.name}
-                          </Typography>
-                          <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem' }}>
-                            {formatLongDate(selectedMatchDay.match_date)}
-                          </Typography>
-                        </>
-                      ) : (
-                        <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.6rem', md: '2rem' } }}>
-                          {formatLongDate(selectedMatchDay.match_date)}
-                        </Typography>
-                      )}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+                        <span style={{ fontSize: '1.8rem' }}>{getCompetitionIcon(selectedMatchDay.competitionIcon)}</span>
+                        <Box>
+                          {selectedMatchDay.name ? (
+                            <>
+                              <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.6rem', md: '2rem' } }}>
+                                {selectedMatchDay.name}
+                              </Typography>
+                              <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem' }}>
+                                {formatLongDate(selectedMatchDay.match_date)}
+                              </Typography>
+                            </>
+                          ) : (
+                            <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.6rem', md: '2rem' } }}>
+                              {formatLongDate(selectedMatchDay.match_date)}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
                       <Typography sx={{ color: '#f59e0b', fontSize: '0.9rem', mt: 0.75 }}>
                         Cutoff: {formatCutoff(selectedMatchDay.cutoff_at)}
                       </Typography>
@@ -804,7 +821,7 @@ function PredictionsContent() {
                         '&:hover': { backgroundColor: afterCutoff || isSeasonClosed ? '#555' : '#15803d' },
                       }}
                     >
-                      {isSeasonClosed ? 'SEASON ENDED' : afterCutoff ? 'PREDICTIONS LOCKED' : isSaving ? 'Savingâ€¦' : 'Save Predictions'}
+                      {isSeasonClosed ? 'SEASON ENDED' : afterCutoff ? 'PREDICTIONS LOCKED' : isSaving ? 'Saving' : 'Save Predictions'}
                     </Button>
                   </Box>
                 </Stack>
@@ -822,7 +839,7 @@ function PredictionsContent() {
   );
 }
 
-// â”€â”€ Page export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  ”  ”  Page export  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
 export default function PredictionsPage() {
   return (
     <Suspense

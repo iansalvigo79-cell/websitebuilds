@@ -13,7 +13,7 @@ import { calculatePoints } from '@/lib/pointsCalculator';
  * 3. Update the predictions table with points per game type.
  */
 const SERVICE_ROLE_ERROR =
-  'Add SUPABASE_SERVICE_ROLE_KEY to .env.local (Supabase Dashboard â†’ Project Settings â†’ API â†’ service_role secret). Restart the dev server after saving.';
+  'Add SUPABASE_SERVICE_ROLE_KEY to .env.local (Supabase Dashboard  †’ Project Settings  †’ API  †’ service_role secret). Restart the dev server after saving.';
 
 export async function POST(request: NextRequest) {
   const adminSecret = process.env.ADMIN_SECRET;
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
 
       const { data: predictions, error: fetchErr } = await supabase
         .from('predictions')
-        .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+        .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
         .eq('match_day_id', md.id);
 
       if (fetchErr) {
@@ -106,10 +106,10 @@ export async function POST(request: NextRequest) {
           update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, actual) : null;
         }
         if (htGoals != null) {
-          update.ht_goals_points = p.predicted_ht_goals != null ? calculatePoints(p.predicted_ht_goals, htGoals) : null;
+          update.ht_goals_points = p.predicted_half_time_goals != null ? calculatePoints(p.predicted_half_time_goals, htGoals) : null;
         }
         if (totalCorners != null) {
-          update.corners_points = p.predicted_total_corners != null ? calculatePoints(p.predicted_total_corners, totalCorners) : null;
+          update.corners_points = p.predicted_ft_corners != null ? calculatePoints(p.predicted_ft_corners, totalCorners) : null;
         }
         if (htCorners != null) {
           update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;

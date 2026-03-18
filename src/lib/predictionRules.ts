@@ -1,3 +1,5 @@
+import { getUKTimestamp } from '@/lib/timezoneUtils';
+
 /**
  * Goalactico prediction rules: lock and matchday status.
  */
@@ -15,14 +17,15 @@ export interface MatchDayForStatus {
 /**
  * Predictions are locked once the first match of the matchday has kicked off.
  */
+
 export function isMatchDayLocked(games: GameForLock[]): boolean {
   if (!games?.length) return false;
-  const now = new Date();
+  const now = Date.now();
   const earliest = games.reduce((earliest, g) => {
-    const t = new Date(g.kickoff_at).getTime();
+    const t = getUKTimestamp(g.kickoff_at);
     return t < earliest ? t : earliest;
-  }, new Date(games[0].kickoff_at).getTime());
-  return now.getTime() >= earliest;
+  }, getUKTimestamp(games[0].kickoff_at));
+  return now >= earliest;
 }
 
 /**
@@ -34,8 +37,8 @@ export function getMatchDayStatus(
 ): MatchDayStatus {
   if (matchDay.actual_total_goals != null) return 'completed';
   if (!games?.length) return 'upcoming';
-  const now = new Date();
-  const hasStarted = games.some((g) => new Date(g.kickoff_at).getTime() <= now.getTime());
+  const now = Date.now();
+  const hasStarted = games.some((g) => getUKTimestamp(g.kickoff_at) <= now);
   return hasStarted ? 'live' : 'upcoming';
 }
 
@@ -48,7 +51,7 @@ export function isAfterCutoff(
   games: GameForLock[]
 ): boolean {
   if (cutoffAt) {
-    return new Date().getTime() >= new Date(cutoffAt).getTime();
+    return Date.now() >= getUKTimestamp(cutoffAt);
   }
   return isMatchDayLocked(games);
 }

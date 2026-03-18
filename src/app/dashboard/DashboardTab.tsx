@@ -20,6 +20,7 @@ import Link from 'next/link';
 import PrizeWidget from './PrizeWidget';
 import './DashboardTab.css';
 import ModernLoader from '@/components/ui/ModernLoader';
+import { getUKTimestamp } from '@/lib/timezoneUtils';
 // import './DashboardTab.css';
 
 // Fallback emoji mapping for competitions without an icon in DB
@@ -82,6 +83,14 @@ export default function DashboardTab() {
   } | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [isPaidUser, setIsPaidUser] = useState(false);
+  const nowTs = now.getTime();
+
+  const getUKDateString = (date: Date) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
 
   // Helper: get competition icon (DB icon or emoji fallback)
   const getCompetitionIcon = (competition: Competition | null | undefined) => {
@@ -175,17 +184,19 @@ export default function DashboardTab() {
       }
       setActiveSeason(seasonData);
 
-      // 2. Fetch matchdays this week for this season
+      // 2. Fetch upcoming matchdays for this season (next 21 days)
       const currentDate = new Date();
-      const startOfWeek = new Date(currentDate.setDate(currentDate.getDate() - currentDate.getDay()));
-      const endOfWeek = new Date(currentDate.setDate(currentDate.getDate() - currentDate.getDay() + 6));
+      const endDate = new Date(currentDate);
+      endDate.setDate(endDate.getDate() + 21);
+      const startDateStr = getUKDateString(currentDate);
+      const endDateStr = getUKDateString(endDate);
 
       const { data: matchDays, error: matchDayError } = await supabase
         .from('match_days')
         .select('*')
         .eq('season_id', seasonData.id)
-        .gte('match_date', startOfWeek.toISOString())
-        .lte('match_date', endOfWeek.toISOString())
+        .gte('match_date', startDateStr)
+        .lte('match_date', endDateStr)
         .order('match_date', { ascending: true });
 
       if (matchDayError) {
@@ -224,6 +235,25 @@ export default function DashboardTab() {
           .in('match_day_id', matchDayIds)
           .eq('competition_id', competition.id)
           .order('kickoff_at', { ascending: true });
+      }
+
+      if (!gamesResult.error && (gamesResult.data?.length ?? 0) === 0) {
+        gamesResult = await supabase
+          .from('games')
+          .select(`
+            *,
+            home_team_rel:teams!games_home_team_fkey(id, name),
+            away_team_rel:teams!games_away_team_fkey(id, name)
+          `)
+          .in('match_day_id', matchDayIds)
+          .order('kickoff_at', { ascending: true });
+        if (gamesResult.error) {
+          gamesResult = await supabase
+            .from('games')
+            .select('*')
+            .in('match_day_id', matchDayIds)
+            .order('kickoff_at', { ascending: true });
+        }
       }
 
       if (gamesResult.error) {
@@ -351,15 +381,15 @@ export default function DashboardTab() {
   // ─── Derived data ───
   // Featured games: first 3 games from the first matchday whose cutoff is before now
   const firstCutoffMatchDay = matchDayGroups
-    .filter((g) => g.matchDay.cutoff_at && new Date(g.matchDay.cutoff_at) > now)
-    .sort((a, b) => new Date(a.matchDay.cutoff_at).getTime() - new Date(b.matchDay.cutoff_at).getTime())[0] || null;
+    .filter((g) => g.matchDay.cutoff_at && getUKTimestamp(g.matchDay.cutoff_at) > nowTs)
+    .sort((a, b) => getUKTimestamp(a.matchDay.cutoff_at) - getUKTimestamp(b.matchDay.cutoff_at))[0] || null;
   const featuredGames: GameWithTeams[] = firstCutoffMatchDay
     ? firstCutoffMatchDay.games.slice(0, 3)
     : [];
 
   const featuredGame = featuredGames.length > 0 ? featuredGames[currentPredictionIndex] || featuredGames[0] : null;
   const totalPredictions = featuredGames.length;
-  const timeRemainingMs = openMatchday ? new Date(openMatchday.cutoff_at).getTime() - now.getTime() : 0;
+  const timeRemainingMs = openMatchday ? getUKTimestamp(openMatchday.cutoff_at) - nowTs : 0;
   const remainingMinutes = openMatchday ? Math.max(0, Math.ceil(timeRemainingMs / 60000)) : 0;
   const remainingHours = Math.floor(remainingMinutes / 60);
   const remainingMins = remainingMinutes % 60;

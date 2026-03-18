@@ -265,11 +265,6 @@ export default function DashboardTab() {
     toast.success('Predictions saved! \u2705');
   };
 
-  const formatTime = (dateString: string | null | undefined) => {
-    if (!dateString) return '00:00';
-    return dateString.replace(/.*T(\d\d:\d\d).*/, '$1');
-  };
-
   const formatGameDateTime = (dateString: string | null | undefined) => {
     if (!dateString) return '--/--/----, --:--:--';
     const date = new Date(dateString);

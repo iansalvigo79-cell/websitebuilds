@@ -18,9 +18,14 @@ function SubscriptionSuccessBanner({ onShow }: { onShow: () => void }) {
   useEffect(() => {
     if (searchParams.get('subscription') === 'success') {
       onShow();
-      const url = new URL(window.location.href);
-      url.searchParams.delete('subscription');
-      window.history.replaceState({}, '', url.pathname + url.search);
+      if (typeof window === 'undefined') return;
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('subscription');
+        window.history.replaceState({}, '', url.pathname + url.search);
+      } catch (err) {
+        console.warn('Failed to clean subscription param:', err);
+      }
     }
   }, [searchParams, onShow]);
 

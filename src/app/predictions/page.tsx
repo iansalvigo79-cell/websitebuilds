@@ -5,41 +5,53 @@ import {
   Typography,
   Stack,
   Button,
-  Tabs,
-  Tab,
   Card,
   CardContent,
-  TextField,
-  Grid,
-  Tooltip,
 } from '@mui/material';
 import { useState, useEffect, useCallback, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import { MatchDay } from '@/types/database';
-import { isMatchDayLocked, isAfterCutoff, getMatchDayStatus } from '@/lib/predictionRules';
-import { formatUKTime } from '@/lib/timezoneUtils';
 import ModernLoader from '@/components/ui/ModernLoader';
+
+interface CompetitionInfo {
+  name?: string | null;
+  short_name?: string | null;
+  icon?: string | null;
+}
 
 interface GameRow {
   id: string;
-  home_team_name: string;
-  away_team_name: string;
-  kickoff_at: string;
-  competition_name?: string | null;
-  competition_short_name?: string | null;
+  kickoff_at: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  competitions?: CompetitionInfo | CompetitionInfo[] | null;
 }
 
-interface MatchDayWithMeta extends MatchDay {
-  competitionName: string;
-  competitionIcon?: string | null;
-  matchDayLabel: string;
-  games: GameRow[];
-  seasonIsActive: boolean;
-  seasonName: string;
+interface MatchDayRow {
+  id: string;
+  name?: string | null;
+  match_date: string;
+  cutoff_at: string;
+  actual_total_goals: number | null;
+  ht_goals: number | null;
+  total_corners: number | null;
+  ht_corners: number | null;
+  games?: GameRow[] | null;
+}
+
+interface PastPredictionRow {
+  id: string;
+  predicted_total_goals: number | null;
+  predicted_ht_goals: number | null;
+  predicted_total_corners: number | null;
+  predicted_ht_corners: number | null;
+  points: number | null;
+  ht_goals_points: number | null;
+  corners_points: number | null;
+  ht_corners_points: number | null;
+  match_days: MatchDayRow | MatchDayRow[] | null;
 }
 
 function formatTime(dateString: string | null | undefined) {
@@ -47,465 +59,249 @@ function formatTime(dateString: string | null | undefined) {
   return dateString.replace(/.*T(\d\d:\d\d).*/, '$1');
 }
 
-function formatCutoff(cutoffString: string | null | undefined) {
-  if (!cutoffString) return '';
-  return formatUKTime(cutoffString);
-}
-
 function formatLongDate(dateString: string | null | undefined) {
   if (!dateString) return '';
   return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
   });
-}
-
-function formatShortDate(dateString: string | null | undefined) {
-  if (!dateString) return '';
-  return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function getCompetitionIcon(icon?: string | null) {
   const trimmed = icon?.trim();
-  return trimmed ? trimmed : '⚽';
+  return trimmed ? trimmed : '\u26BD';
 }
 
-function PredictionRow({
+function getMatchDay(row: MatchDayRow | MatchDayRow[] | null) {
+  if (!row) return null;
+  return Array.isArray(row) ? row[0] ?? null : row;
+}
+
+function getGameCompetition(game: GameRow): CompetitionInfo | null {
+  const rel = game.competitions;
+  if (!rel) return null;
+  return Array.isArray(rel) ? rel[0] ?? null : rel;
+}
+
+function getPointsColor(points: number | null | undefined) {
+  if (points === null || points === undefined) return '#6b7280';
+  if (points === 10 || points === 7) return '#16a34a';
+  if (points === 4 || points === 2) return '#f97316';
+  if (points === 0) return '#ef4444';
+  return '#6b7280';
+}
+
+function PredictionStatBox({
   label,
-  badgeText,
-  badgeColor,
-  badgeBackground,
-  value,
-  onChange,
-  disabled,
-  accentColor,
+  predicted,
+  actual,
+  points,
+  locked,
 }: {
   label: string;
-  badgeText: string;
-  badgeColor: string;
-  badgeBackground: string;
-  value: string;
-  onChange: (v: string) => void;
-  disabled: boolean;
-  accentColor: string;
+  predicted: number | null;
+  actual: number | null;
+  points: number | null;
+  locked: boolean;
 }) {
-  return (
-    <Card sx={{ backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 2 }}>
-      <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-        <Box>
-          <Typography sx={{ color: '#fff', fontSize: '1rem', fontWeight: 800 }}>
-            {label}
-          </Typography>
-          <Box
-            component="span"
-            sx={{
-              display: 'inline-block',
-              mt: 0.75,
-              px: 1,
-              py: 0.3,
-              borderRadius: '999px',
-              fontSize: '0.7rem',
-              fontWeight: 800,
-              backgroundColor: badgeBackground,
-              color: badgeColor,
-              letterSpacing: '0.04em',
-            }}
-          >
-            {badgeText}
-          </Box>
-        </Box>
-        <TextField
-          size="small"
-          type="number"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={disabled}
-          inputProps={{ min: 0, style: { color: '#fff', textAlign: 'center', fontSize: '1.5rem', fontWeight: 700 } }}
-          sx={{
-            width: 100,
-            '& .MuiInputBase-root': {
-              backgroundColor: '#111827',
-              borderRadius: '8px',
-            },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.12)' },
-            '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: accentColor },
-          }}
-        />
-      </CardContent>
-    </Card>
-  );
-}
+  const displayPredicted = locked ? '\u2014' : (predicted ?? '\u2014');
+  const displayActual = actual ?? null;
+  const actualText = displayActual === null ? 'TBD' : String(displayActual);
+  const actualColor = displayActual === null ? '#6b7280' : '#16a34a';
+  const pointsText = locked ? '\u2014' : points === null || points === undefined ? '\u2014' : `${points} pts`;
+  const pointsColor = locked ? '#6b7280' : getPointsColor(points);
 
-function UpgradeCard({
-  title,
-  description,
-  onUpgrade,
-}: {
-  title: string;
-  description: string;
-  onUpgrade: () => void;
-}) {
   return (
     <Box
       sx={{
-        backgroundColor: 'rgba(234,179,8,0.05)',
-        border: '1px solid rgba(234,179,8,0.3)',
-        borderRadius: '10px',
-        p: 2.5,
+        position: 'relative',
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid rgba(255,255,255,0.15)',
+        borderRadius: '12px',
+        p: 2,
+        minHeight: 120,
       }}
     >
-      <Typography sx={{ color: '#eab308', fontSize: '1rem', fontWeight: 800, mb: 1 }}>
-        🔒 {title} — UPGRADE TO UNLOCK
+      <Typography sx={{ color: '#9ca3af', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        {label}
       </Typography>
-      <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem', mb: 2 }}>
-        {description}
-      </Typography>
-      <Button
-        onClick={onUpgrade}
-        sx={{
-          background: 'linear-gradient(135deg, #eab308, #d97706)',
-          color: '#000',
-          fontWeight: 900,
-          borderRadius: '8px',
-          px: 3,
-          py: 1.5,
-          textTransform: 'none',
-        }}
-      >
-        UPGRADE FOR £5/MONTH →
-      </Button>
+      <Stack spacing={0.6} sx={{ mt: 1 }}>
+        <Typography sx={{ color: '#ffffff', fontSize: '0.92rem', fontWeight: 600 }}>
+          You: {displayPredicted}
+        </Typography>
+        <Typography sx={{ color: actualColor, fontSize: '0.85rem', fontWeight: 600 }}>
+          Act: {actualText}
+        </Typography>
+        <Typography sx={{ color: pointsColor, fontSize: '0.8rem', fontWeight: 700 }}>
+          {pointsText}
+        </Typography>
+      </Stack>
+      {locked && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            px: 1,
+            py: 0.2,
+            borderRadius: 999,
+            background: 'rgba(234,179,8,0.2)',
+            color: '#eab308',
+            fontSize: '0.65rem',
+            fontWeight: 800,
+            letterSpacing: '0.08em',
+          }}
+        >
+          PRO
+        </Box>
+      )}
     </Box>
   );
 }
 
-//  ”  ”  Isolated component for useSearchParams  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
-// MUST be its own component wrapped directly in <Suspense>
-function SearchParamsHandler({
-  onMatchDayId,
-  onSubscriptionSuccess,
-  onProfileRefetch,
-}: {
-  onMatchDayId: (id: string | null) => void;
-  onSubscriptionSuccess: () => void;
-  onProfileRefetch: () => void;
-}) {
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    // Pass matchDayId up to parent
-    onMatchDayId(searchParams.get('matchDayId'));
-
-    // Refetch profile if returning from successful payment
-    if (searchParams.get('subscription') === 'success') {
-      onSubscriptionSuccess();
-      onProfileRefetch();
-    }
-  }, [searchParams, onMatchDayId, onSubscriptionSuccess, onProfileRefetch]);
-
-  return null;
-}
-
-//  ”  ”  Main predictions content  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
 function PredictionsContent() {
   const router = useRouter();
+  const [isPaidUser, setIsPaidUser] = useState(false);
+  const [pastPredictions, setPastPredictions] = useState<PastPredictionRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [matchDayIdFromUrl, setMatchDayIdFromUrl] = useState<string | null>(null);
-  const [activeTab, setActiveTab]                 = useState<'open' | 'history'>('open');
-  const [matchDays, setMatchDays]                 = useState<MatchDayWithMeta[]>([]);
-  const [selectedMatchDay, setSelectedMatchDay]   = useState<MatchDayWithMeta | null>(null);
-  const [isLoading, setIsLoading]                 = useState(true);
-  const [ftGoals, setFtGoals]                     = useState<string>('');
-  const [htGoals, setHtGoals]                     = useState<string>('');
-  const [ftCorners, setFtCorners]                 = useState<string>('');
-  const [htCorners, setHtCorners]                 = useState<string>('');
-  const [isSaving, setIsSaving]                   = useState(false);
-  const [isPaidUser, setIsPaidUser]               = useState(false);
-
-  //  ”  ”  Fetch profile / paid status  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
-  const fetchProfilePaidStatus = useCallback(async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('account_type, stripe_subscription_id')
-        .eq('id', user.id)
-        .single();                              //  † use single() not maybeSingle()
-
-      if (error) {
-        console.error('Profile fetch error:', error.message);
-        return;
-      }
-
-      const paid =
-        profile?.account_type === 'paid' ||     //  † primary check
-        Boolean(profile?.stripe_subscription_id); //  † fallback check
-
-      console.log('account_type:', profile?.account_type, '| isPaid:', paid);
-      setIsPaidUser(paid);
-    } catch (err) {
-      console.error('fetchProfilePaidStatus error:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchProfilePaidStatus();
-  }, [fetchProfilePaidStatus]);
-
-  // Refetch profile when tab becomes visible (e.g. returning from Stripe)
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') fetchProfilePaidStatus();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [fetchProfilePaidStatus]);
-
-  //  ”  ”  Fetch match days  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
-  const fetchMatchDays = useCallback(async () => {
+  const fetchPastPredictions = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data: seasonsData, error: seasonsError } = await supabase
-        .from('seasons')
-        .select('id, league_id, name, is_active');
-
-      if (seasonsError || !seasonsData?.length) {
-        setMatchDays([]);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setPastPredictions([]);
         setIsLoading(false);
         return;
       }
 
-      const competitionIds = [...new Set(seasonsData.map((s: { league_id: string }) => s.league_id).filter(Boolean))] as string[];
-      const competitionsData = competitionIds.length
-        ? await supabase
-          .from('competitions')
-          .select('id, name, icon')
-          .in('id', competitionIds)
-        : { data: [] as { id: string; name: string; icon?: string | null }[] };
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('account_type, stripe_subscription_id')
+        .eq('id', user.id)
+        .maybeSingle();
 
-      const competitionsMap = new Map(
-        (competitionsData.data || []).map((c: { id: string; name: string; icon?: string | null }) => [c.id, { name: c.name, icon: c.icon ?? null }])
-      );
+      const paid = profile?.account_type === 'paid' || Boolean(profile?.stripe_subscription_id);
+      setIsPaidUser(Boolean(paid));
 
-      const allMatchDays: MatchDayWithMeta[] = [];
-      const now = new Date();
-      const futureEnd = new Date(now);
-      futureEnd.setDate(futureEnd.getDate() + 60);
+      const { data: pastData, error } = await supabase
+        .from('predictions')
+        .select(`
+          id,
+          predicted_total_goals,
+          predicted_ht_goals,
+          predicted_total_corners,
+          predicted_ht_corners,
+          points,
+          ht_goals_points,
+          corners_points,
+          ht_corners_points,
+          match_days (
+            id, name, match_date, cutoff_at,
+            actual_total_goals,
+            ht_goals,
+            total_corners,
+            ht_corners,
+            games (
+              id, kickoff_at,
+              home_team, away_team,
+              competitions ( name, short_name, icon )
+            )
+          )
+        `)
+        .eq('user_id', user.id)
+        .lt('match_days.cutoff_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
 
-      for (const season of seasonsData) {
-        const { data: mdList, error: mdError } = await supabase
-          .from('match_days')
-          .select('*')
-          .eq('season_id', season.id)
-          .gte('match_date', now.toISOString().slice(0, 10))
-          .lte('match_date', futureEnd.toISOString().slice(0, 10))
-          .order('match_date', { ascending: true });
-
-        if (mdError || !mdList?.length) continue;
-
-        const competitionInfo = competitionsMap.get(season.league_id);
-        const competitionName = competitionInfo?.name || 'Competition';
-        const competitionIcon = competitionInfo?.icon ?? null;
-        const seasonName   = season.name || '';
-        const matchDayNum  = seasonName.replace(/\D/g, '') || mdList.length;
-
-        for (const md of mdList) {
-          const gamesResult = await supabase
-            .from('games')
-            .select(`
-              id,
-              kickoff_at,
-              home_team_rel:teams!games_home_team_fkey(name),
-              away_team_rel:teams!games_away_team_fkey(name),
-              competitions(id, name, short_name)
-            `)
-            .eq('match_day_id', md.id)
-            .order('kickoff_at', { ascending: true });
-
-          let rawGames: Array<Record<string, unknown>> = [];
-          if (gamesResult.error) {
-            const fallback = await supabase
-              .from('games')
-              .select('id, kickoff_at, home_team, away_team')
-              .eq('match_day_id', md.id)
-              .order('kickoff_at', { ascending: true });
-            rawGames = (fallback.data as Array<Record<string, unknown>>) || [];
-          } else {
-            rawGames = (gamesResult.data as Array<Record<string, unknown>>) || [];
-          }
-
-          const games: GameRow[] = rawGames.map((g) => {
-            const row = g as Record<string, unknown> & {
-              home_team_rel?: { name?: string };
-              away_team_rel?: { name?: string };
-              home_team?: string;
-              away_team?: string;
-              competitions?: { name?: string; short_name?: string | null };
-            };
-            return {
-              id:             row.id as string,
-              home_team_name: row.home_team_rel?.name ?? (row.home_team as string) ?? 'TBD',
-              away_team_name: row.away_team_rel?.name ?? (row.away_team as string) ?? 'TBD',
-              kickoff_at:     (row.kickoff_at as string) || '',
-              competition_name: row.competitions?.name ?? null,
-              competition_short_name: row.competitions?.short_name ?? null,
-            };
-          });
-
-          allMatchDays.push({
-            ...md,
-            competitionName,
-            competitionIcon,
-            matchDayLabel: `${competitionName} - Matchday ${matchDayNum}`,
-            games,
-            name: (md as { name?: string | null }).name ?? null,
-            seasonIsActive: Boolean((season as { is_active?: boolean }).is_active),
-            seasonName,
-          });
-        }
+      if (error) {
+        console.error('Supabase predictions fetch error (Past Predictions):', error);
+        toast.error('Failed to load prediction history');
+        setPastPredictions([]);
+        setIsLoading(false);
+        return;
       }
 
-      allMatchDays.sort((a, b) =>
-        new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
-      );
-      setMatchDays(allMatchDays);
-
-      const toSelect = matchDayIdFromUrl
-        ? allMatchDays.find((md) => md.id === matchDayIdFromUrl) ?? null
-        : allMatchDays[0] ?? null;
-      setSelectedMatchDay(toSelect);
+      setPastPredictions((pastData as PastPredictionRow[]) ?? []);
     } catch (err) {
-      console.error(err);
-      toast.error('Failed to load match days');
-      setMatchDays([]);
+      console.error('Past predictions fetch error:', err);
+      toast.error('Failed to load prediction history');
     } finally {
       setIsLoading(false);
     }
-  }, [matchDayIdFromUrl]);
+  }, []);
 
   useEffect(() => {
-    fetchMatchDays();
-  }, [fetchMatchDays]);
+    fetchPastPredictions();
+  }, [fetchPastPredictions]);
 
-  //  ”  ”  Load existing prediction for selected matchday  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
-  useEffect(() => {
-    if (!selectedMatchDay) { setFtGoals(''); return; }
-    let cancelled = false;
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
-      const { data } = await supabase
-        .from('predictions')
-        .select('predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
-        .eq('user_id', user.id)
-        .eq('match_day_id', selectedMatchDay.id)
-        .maybeSingle();
-      if (cancelled) return;
-      setFtGoals(data?.predicted_total_goals != null ? String(data.predicted_total_goals) : '');
-      setHtGoals(data?.predicted_half_time_goals != null ? String(data.predicted_half_time_goals) : '');
-      setFtCorners(data?.predicted_ft_corners != null ? String(data.predicted_ft_corners) : '');
-      setHtCorners(data?.predicted_ht_corners != null ? String(data.predicted_ht_corners) : '');
-    })();
-    return () => { cancelled = true; };
-  }, [selectedMatchDay?.id]);
+  if (isLoading) {
+    return (
+      <ModernLoader
+        label="Loading Prediction History"
+        sublabel="Fetching your past matchdays..."
+        minHeight="70vh"
+      />
+    );
+  }
 
-  const isSeasonClosed = selectedMatchDay ? !selectedMatchDay.seasonIsActive : false;
-  const afterCutoff    = selectedMatchDay ? isAfterCutoff(selectedMatchDay.cutoff_at, selectedMatchDay.games) : false;
-  const lockedByKickoff = selectedMatchDay ? isMatchDayLocked(selectedMatchDay.games) : false;
-  const matchDayStatus = selectedMatchDay ? getMatchDayStatus(selectedMatchDay, selectedMatchDay.games) : 'upcoming';
-  const predictionsLocked = isSeasonClosed || afterCutoff || lockedByKickoff;
-  const isOpenStatus = !predictionsLocked && matchDayStatus === 'upcoming';
-  const competitionSections = selectedMatchDay ? (() => {
-    const sections: { name: string; shortName: string | null; games: GameRow[] }[] = [];
-    const seen = new Map<string, { name: string; shortName: string | null; games: GameRow[] }>();
-    selectedMatchDay.games.forEach((game) => {
-      const name = game.competition_name || 'Other';
-      if (!seen.has(name)) {
-        const entry = { name, shortName: game.competition_short_name ?? null, games: [] as GameRow[] };
-        seen.set(name, entry);
-        sections.push(entry);
-      }
-      seen.get(name)?.games.push(game);
-    });
-    return sections;
-  })() : [];
-
-  // Save prediction
-  const handleUpdatePrediction = async () => {
-    if (!selectedMatchDay) return;
-    if (isSeasonClosed) { toast.error('Season has ended. Predictions are locked.'); return; }
-    if (afterCutoff) { toast.error('Predictions are locked after the cutoff time.'); return; }
-    if (lockedByKickoff) { toast.error('Predictions are locked after the first match kicks off.'); return; }
-
-    setIsSaving(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) { router.push('/signin'); setIsSaving(false); return; }
-
-      const value = parseInt(ftGoals, 10);
-      if (Number.isNaN(value) || value < 0) {
-        toast.error('Enter a valid number for Full-Time Goals');
-        setIsSaving(false);
-        return;
-      }
-      const parseOptional = (raw: string, label: string) => {
-        if (!raw) return null;
-        const val = parseInt(raw, 10);
-        if (Number.isNaN(val) || val < 0) {
-          throw new Error(`Enter a valid number for ${label}`);
-        }
-        return val;
-      };
-      let htVal: number | null = null;
-      let cornersVal: number | null = null;
-      let htCornersVal: number | null = null;
-      try {
-        htVal = parseOptional(htGoals, 'Half Time Goals');
-        cornersVal = parseOptional(ftCorners, 'Total Corners');
-        htCornersVal = parseOptional(htCorners, 'Half Time Corners');
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Invalid input');
-        setIsSaving(false);
-        return;
-      }
-        const res = await fetch('/api/predictions/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({
-            matchDayId: selectedMatchDay.id,
-            predicted_total_goals: value,
-            predicted_half_time_goals: htVal,
-            predicted_ft_corners: cornersVal,
-            predicted_ht_corners: htCornersVal,
-          }),
-        });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error || 'Failed to save prediction');
-      } else {
-        toast.success('Prediction updated');
-      }
-    } catch {
-      toast.error('Failed to save prediction');
-    } finally {
-      setIsSaving(false);
+  const renderPointsBadge = (points: number | null, totalPoints: number) => {
+    if (points === null || points === undefined) {
+      return (
+        <Box
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 999,
+            background: 'rgba(249,115,22,0.2)',
+            color: '#f97316',
+            fontWeight: 800,
+            fontSize: '0.75rem',
+          }}
+        >
+          {`Pending \u23F3`}
+        </Box>
+      );
     }
+
+    if (totalPoints > 0) {
+      return (
+        <Box
+          sx={{
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 999,
+            background: 'rgba(22,163,74,0.2)',
+            color: '#16a34a',
+            fontWeight: 800,
+            fontSize: '0.75rem',
+          }}
+        >
+          {`+${totalPoints} pts \u2705`}
+        </Box>
+      );
+    }
+
+    return (
+      <Box
+        sx={{
+          px: 1.5,
+          py: 0.5,
+          borderRadius: 999,
+          background: 'rgba(107,114,128,0.2)',
+          color: '#9ca3af',
+          fontWeight: 800,
+          fontSize: '0.75rem',
+        }}
+      >
+        0 pts
+      </Box>
+    );
   };
 
   return (
     <Box sx={{ backgroundColor: '#24262F', minHeight: '100vh', py: 4 }}>
-
-      {/*useSearchParams isolated here in its own Suspense*/}
-      <Suspense fallback={null}>
-        <SearchParamsHandler
-          onMatchDayId={setMatchDayIdFromUrl}
-          onSubscriptionSuccess={() => {}}
-          onProfileRefetch={fetchProfilePaidStatus}
-        />
-      </Suspense>
-
       <Box sx={{ maxWidth: 1200, mx: 'auto', px: 2 }}>
-
-        {/* Go back */}
         <Button
           startIcon={<ArrowBackIcon />}
           onClick={() => router.back()}
@@ -514,341 +310,207 @@ function PredictionsContent() {
           Go back
         </Button>
 
-        {/* Header */}
         <Typography variant="h4" sx={{ fontWeight: 800, color: '#fff', mb: 0.5 }}>
-          Predictions
+          My Prediction History
         </Typography>
-        <Typography sx={{ color: '#999', fontSize: '0.95rem', mb: 1 }}>
-          Make your predictions before the cutoff and earn points.
+        <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', mb: 3 }}>
+          See what you predicted, the games that were played, and your points scored.
         </Typography>
-        {!isPaidUser && (
-          <Typography sx={{ color: '#f59e0b', fontSize: '0.85rem', mb: 2 }}>
-            Free plan: Full-Time Goals only. Upgrade for HT Goals, Corners and more.
-          </Typography>
-        )}
 
-        {/* Tabs */}
-        <Tabs
-          value={activeTab}
-          onChange={(_, v: 'open' | 'history') => setActiveTab(v)}
-          sx={{
-            mb: 3,
-            '& .MuiTabs-indicator': { backgroundColor: '#16a34a' },
-            '& .MuiTab-root': { color: '#999', textTransform: 'none', fontWeight: 600 },
-            '& .Mui-selected': { color: '#16a34a' },
-          }}
-        >
-          <Tab value="open"    label="Open Predictions" />
-          <Tab value="history" label="History" />
-        </Tabs>
-
-        {/* History tab */}
-        {activeTab === 'history' ? (
-          <Card sx={{ backgroundColor: '#111', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 2 }}>
-            <CardContent>
-              <Typography sx={{ color: '#999', textAlign: 'center', py: 4 }}>
-                Prediction history will appear here.
-              </Typography>
-            </CardContent>
-          </Card>
+        {pastPredictions.length === 0 ? (
+          <Box
+            sx={{
+              textAlign: 'center',
+              py: 8,
+              px: 2,
+              borderRadius: 3,
+              border: '1px dashed rgba(255,255,255,0.15)',
+              background: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <Typography sx={{ fontSize: '2rem', mb: 1 }}>{`\u{1F4CB}`}</Typography>
+            <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.2rem', mb: 0.6 }}>
+              No predictions yet
+            </Typography>
+            <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', mb: 2.5 }}>
+              Your prediction history will appear here after your first matchday closes.
+            </Typography>
+            <Button
+              variant="contained"
+              onClick={() => router.push('/dashboard')}
+              sx={{
+                backgroundColor: '#16a34a',
+                color: '#000',
+                fontWeight: 800,
+                px: 3,
+                py: 1.4,
+                borderRadius: '10px',
+                textTransform: 'none',
+              }}
+            >
+              {`Make Your First Prediction \u2192`}
+            </Button>
+          </Box>
         ) : (
-          <Grid container spacing={3}>
+          <Stack spacing={3}>
+            {pastPredictions.map((prediction) => {
+              const matchDay = getMatchDay(prediction.match_days);
+              if (!matchDay) return null;
 
-            {/* Left: Match day list */}
-            <Grid item xs={12} md={4}>
-              <Typography sx={{ color: '#999', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
-                Select Match Day
-              </Typography>
-              {isLoading ? (
-                <ModernLoader
-                  label="Loading Matchdays"
-                  sublabel="Syncing available fixtures..."
-                  minHeight={220}
-                />
-              ) : (
-                <Stack spacing={1}>
-                  {matchDays.map((md) => {
-                    const isSelected = selectedMatchDay?.id === md.id;
-                    const content = (
-                      <Box
-                        key={md.id}
-                        onClick={() => setSelectedMatchDay(md)}
-                        sx={{
-                          p: 1.5, borderRadius: 1, cursor: 'pointer',
-                          backgroundColor: isSelected ? 'rgba(22,163,74,0.2)' : 'transparent',
-                          border: isSelected ? '1px solid rgba(22,163,74,0.5)' : '1px solid transparent',
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          '&:hover': { backgroundColor: 'rgba(255,255,255,0.05)' },
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <span style={{ fontSize: '1.8rem' }}>{getCompetitionIcon(md.competitionIcon)}</span>
-                          <Box>
-                            <Typography sx={{ color: '#fff', fontSize: '1rem', fontWeight: 800 }}>
-                              {md.name || md.matchDayLabel}
-                            </Typography>
-                            <Typography sx={{ color: '#999', fontSize: '0.8rem' }}>
-                              {formatShortDate(md.match_date)}
-                            </Typography>
-                          </Box>
-                        </Box>
-                        {isSelected && <CheckCircleIcon sx={{ color: '#16a34a', fontSize: '1.2rem' }} />}
-                      </Box>
-                    );
-                    return md.name ? (
-                      <Tooltip key={md.id} title={md.name} placement="right">
-                        <Box>{content}</Box>
-                      </Tooltip>
-                    ) : (
-                      content
-                    );
-                  })}
-                  {!isLoading && matchDays.length === 0 && (
-                    <Typography sx={{ color: '#999', py: 2 }}>No open match days.</Typography>
-                  )}
-                </Stack>
-              )}
-            </Grid>
+              const matchdayTitle = matchDay.name || formatLongDate(matchDay.match_date);
+              const matchdayDate = formatLongDate(matchDay.match_date);
+              const totalPoints =
+                (prediction.points ?? 0) +
+                (prediction.ht_goals_points ?? 0) +
+                (prediction.corners_points ?? 0) +
+                (prediction.ht_corners_points ?? 0);
 
-            {/* Right: Match day detail + predictions */}
-            <Grid item xs={12} md={8}>
-              {selectedMatchDay && (
-                <Stack spacing={3}>
+              const hasAnyPoints = [
+                prediction.points,
+                prediction.ht_goals_points,
+                prediction.corners_points,
+                prediction.ht_corners_points,
+              ].some((value) => value !== null && value !== undefined);
 
-                  {/* Match day header */}
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-                    <Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-                        <span style={{ fontSize: '1.8rem' }}>{getCompetitionIcon(selectedMatchDay.competitionIcon)}</span>
+              const games = (matchDay.games ?? [])
+                .slice()
+                .sort((a, b) => {
+                  const aTime = a.kickoff_at ? new Date(a.kickoff_at).getTime() : 0;
+                  const bTime = b.kickoff_at ? new Date(b.kickoff_at).getTime() : 0;
+                  return aTime - bTime;
+                });
+
+              return (
+                <Card
+                  key={prediction.id}
+                  sx={{
+                    backgroundColor: '#111217',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '16px',
+                  }}
+                >
+                  <CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
+                    <Stack spacing={2.5}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                         <Box>
-                          {selectedMatchDay.name ? (
-                            <>
-                              <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.6rem', md: '2rem' } }}>
-                                {selectedMatchDay.name}
-                              </Typography>
-                              <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem' }}>
-                                {formatLongDate(selectedMatchDay.match_date)}
-                              </Typography>
-                            </>
-                          ) : (
-                            <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.6rem', md: '2rem' } }}>
-                              {formatLongDate(selectedMatchDay.match_date)}
+                          <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.15rem' }}>
+                            {matchdayTitle}
+                          </Typography>
+                          <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem' }}>
+                            {matchdayDate}
+                          </Typography>
+                        </Box>
+                        {renderPointsBadge(hasAnyPoints ? totalPoints : null, totalPoints)}
+                      </Box>
+
+                      <Box>
+                        <Typography sx={{ color: '#9ca3af', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', mb: 1 }}>
+                          YOUR PREDICTIONS vs ACTUAL
+                        </Typography>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
+                          <PredictionStatBox
+                            label="FT GOALS"
+                            predicted={prediction.predicted_total_goals}
+                            actual={matchDay.actual_total_goals}
+                            points={prediction.points}
+                            locked={false}
+                          />
+                          <PredictionStatBox
+                            label="HT GOALS"
+                            predicted={prediction.predicted_ht_goals}
+                            actual={matchDay.ht_goals}
+                            points={prediction.ht_goals_points}
+                            locked={!isPaidUser}
+                          />
+                          <PredictionStatBox
+                            label="FT CORNERS"
+                            predicted={prediction.predicted_total_corners}
+                            actual={matchDay.total_corners}
+                            points={prediction.corners_points}
+                            locked={!isPaidUser}
+                          />
+                          <PredictionStatBox
+                            label="HT CORNERS"
+                            predicted={prediction.predicted_ht_corners}
+                            actual={matchDay.ht_corners}
+                            points={prediction.ht_corners_points}
+                            locked={!isPaidUser}
+                          />
+                        </Box>
+                      </Box>
+
+                      <Box>
+                        <Typography sx={{ fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', mb: 1 }}>
+                          GAMES IN THIS MATCHDAY
+                        </Typography>
+                        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                          {games.length === 0 ? (
+                            <Typography sx={{ color: '#6b7280', fontSize: '0.85rem', py: 1.5 }}>
+                              No matches listed yet.
                             </Typography>
+                          ) : (
+                            games.map((game) => {
+                              const competition = getGameCompetition(game);
+                              const badgeLabel = competition?.short_name || competition?.name || 'COMP';
+                              return (
+                                <Box
+                                  key={game.id}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    py: 1.25,
+                                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                                    '&:last-child': { borderBottom: 'none' },
+                                  }}
+                                >
+                                  <Typography sx={{ color: '#ffffff', fontSize: '0.95rem', fontWeight: 600 }}>
+                                    {(game.home_team || 'TBD')} vs {(game.away_team || 'TBD')}
+                                  </Typography>
+                                  <Stack direction="row" alignItems="center" spacing={1}>
+                                    <Box
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 0.5,
+                                        background: 'rgba(255,255,255,0.08)',
+                                        borderRadius: '999px',
+                                        px: 1,
+                                        py: '2px',
+                                        fontSize: '0.7rem',
+                                        color: '#ffffff',
+                                        textTransform: 'uppercase',
+                                      }}
+                                    >
+                                      <Box component="span" sx={{ fontSize: '0.85rem' }}>
+                                        {getCompetitionIcon(competition?.icon)}
+                                      </Box>
+                                      <Box component="span">
+                                        {badgeLabel}
+                                      </Box>
+                                    </Box>
+                                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>
+                                      {formatTime(game.kickoff_at)}
+                                    </Typography>
+                                  </Stack>
+                                </Box>
+                              );
+                            })
                           )}
                         </Box>
                       </Box>
-                      <Typography sx={{ color: '#f59e0b', fontSize: '0.9rem', mt: 0.75 }}>
-                        Cutoff: {formatCutoff(selectedMatchDay.cutoff_at)}
-                      </Typography>
-                      <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', mt: 1 }}>
-                        Enter your predictions below before the cutoff time. The closer you are to the actual score, the more points you earn!
-                      </Typography>
-                    </Box>
-                    <Box
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        px: 2,
-                        py: 1,
-                        borderRadius: 999,
-                        border: isOpenStatus ? '1px solid rgba(22,163,74,0.5)' : '1px solid rgba(107,114,128,0.4)',
-                        backgroundColor: isOpenStatus ? 'rgba(22,163,74,0.2)' : 'rgba(107,114,128,0.2)',
-                      }}
-                    >
-                      {isOpenStatus && (
-                        <Box
-                          sx={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            backgroundColor: '#16a34a',
-                            boxShadow: '0 0 0 0 rgba(22,163,74,0.6)',
-                            animation: 'pulse-open 1.5s infinite',
-                            '@keyframes pulse-open': {
-                              '0%': { boxShadow: '0 0 0 0 rgba(22,163,74,0.6)' },
-                              '70%': { boxShadow: '0 0 0 8px rgba(22,163,74,0)' },
-                              '100%': { boxShadow: '0 0 0 0 rgba(22,163,74,0)' },
-                            },
-                          }}
-                        />
-                      )}
-                      <Typography sx={{ color: isOpenStatus ? '#16a34a' : '#9ca3af', fontWeight: 800, fontSize: '0.85rem' }}>
-                        {isOpenStatus ? 'OPEN' : 'CLOSED'}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Matches */}
-                  <Box>
-                    <Typography sx={{ color: '#999', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
-                      Matches
-                    </Typography>
-                    <Stack spacing={2}>
-                      {competitionSections.map((section) => (
-                        <Box key={section.name}>
-                          <Box
-                            sx={{
-                              backgroundColor: 'rgba(255,255,255,0.03)',
-                              borderLeft: '3px solid #16a34a',
-                              px: 2,
-                              py: 1,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.1em',
-                            }}
-                          >
-                            <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 700 }}>
-                              {section.name}
-                            </Typography>
-                          </Box>
-                          <Stack spacing={1} sx={{ mt: 1 }}>
-                            {section.games.map((g) => (
-                              <Box
-                                key={g.id}
-                                sx={{
-                                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                  py: 1, px: 1.5, borderRadius: 1,
-                                  backgroundColor: 'rgba(255,255,255,0.03)',
-                                }}
-                              >
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  <Typography sx={{ color: '#fff', fontSize: '0.9rem' }}>{g.home_team_name}</Typography>
-                                  <Typography sx={{ color: '#666', fontSize: '0.85rem' }}>vs</Typography>
-                                  <Typography sx={{ color: '#fff', fontSize: '0.9rem' }}>{g.away_team_name}</Typography>
-                                </Box>
-                                <Typography sx={{ color: '#999', fontSize: '0.85rem' }}>
-                                  {formatTime(g.kickoff_at)}
-                                </Typography>
-                              </Box>
-                            ))}
-                          </Stack>
-                        </Box>
-                      ))}
                     </Stack>
-                  </Box>
-
-                  {/* Prediction inputs */}
-                  <Box>
-                    <Typography sx={{ color: '#999', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', mb: 1.5 }}>
-                      Your Predictions
-                    </Typography>
-                    <Stack spacing={2}>
-                      <PredictionRow
-                        label="⚽ FULL TIME GOALS"
-                        badgeText="FREE"
-                        badgeColor="#16a34a"
-                        badgeBackground="rgba(22,163,74,0.15)"
-                        value={ftGoals}
-                        onChange={setFtGoals}
-                        disabled={predictionsLocked}
-                        accentColor="#16a34a"
-                      />
-                      {!isPaidUser ? (
-                        <>
-                          <UpgradeCard
-                            title="HALF TIME GOALS"
-                            description="Predict HT Goals and earn bonus points every matchday!"
-                            onUpgrade={() => router.push('/paywall')}
-                          />
-                          <UpgradeCard
-                            title="TOTAL CORNERS"
-                            description="Predict total corners and rack up extra points every matchday!"
-                            onUpgrade={() => router.push('/paywall')}
-                          />
-                          <UpgradeCard
-                            title="HALF TIME CORNERS"
-                            description="Predict HT corners and unlock even more ways to score big."
-                            onUpgrade={() => router.push('/paywall')}
-                          />
-                        </>
-                      ) : (
-                        <>
-                          <PredictionRow
-                            label="🕐 HALF TIME GOALS"
-                            badgeText="PRO"
-                            badgeColor="#eab308"
-                            badgeBackground="rgba(234,179,8,0.15)"
-                            value={htGoals}
-                            onChange={setHtGoals}
-                            disabled={predictionsLocked}
-                            accentColor="#3b82f6"
-                          />
-                          <PredictionRow
-                            label="🚩 TOTAL CORNERS"
-                            badgeText="PRO"
-                            badgeColor="#eab308"
-                            badgeBackground="rgba(234,179,8,0.15)"
-                            value={ftCorners}
-                            onChange={setFtCorners}
-                            disabled={predictionsLocked}
-                            accentColor="#f97316"
-                          />
-                          <PredictionRow
-                            label="🔺 HALF TIME CORNERS"
-                            badgeText="PRO"
-                            badgeColor="#eab308"
-                            badgeBackground="rgba(234,179,8,0.15)"
-                            value={htCorners}
-                            onChange={setHtCorners}
-                            disabled={predictionsLocked}
-                            accentColor="#a855f7"
-                          />
-                        </>
-                      )}
-                    </Stack>
-                  </Box>
-
-                  {/* Save button */}
-                  <Box
-                    sx={{
-                      position: { xs: 'sticky', md: 'static' },
-                      bottom: { xs: 16, md: 'auto' },
-                      zIndex: 3,
-                      pt: 1,
-                      backgroundColor: { xs: '#24262F', md: 'transparent' },
-                    }}
-                  >
-                    <Button
-                      variant="contained"
-                      fullWidth
-                      disabled={isSaving || predictionsLocked}
-                      onClick={handleUpdatePrediction}
-                      sx={{
-                        py: 2,
-                        fontSize: '1.1rem',
-                        fontWeight: 900,
-                        borderRadius: 2,
-                        backgroundColor: predictionsLocked ? '#555' : '#16a34a',
-                        '&:hover': { backgroundColor: predictionsLocked ? '#555' : '#15803d' },
-                      }}
-                    >
-                      {isSeasonClosed
-                        ? 'SEASON ENDED'
-                        : afterCutoff
-                          ? 'PREDICTIONS LOCKED'
-                          : lockedByKickoff
-                            ? 'MATCH STARTED'
-                            : isSaving
-                              ? 'Saving'
-                              : 'Save Predictions'}
-                    </Button>
-                  </Box>
-                </Stack>
-              )}
-              {!selectedMatchDay && !isLoading && (
-                <Typography sx={{ color: '#999', py: 4 }}>
-                  Select a match day to make predictions.
-                </Typography>
-              )}
-            </Grid>
-          </Grid>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Stack>
         )}
       </Box>
     </Box>
   );
 }
 
-//  ”  ”  Page export  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ”  ” 
 export default function PredictionsPage() {
   return (
     <Suspense
@@ -865,4 +527,3 @@ export default function PredictionsPage() {
     </Suspense>
   );
 }
-

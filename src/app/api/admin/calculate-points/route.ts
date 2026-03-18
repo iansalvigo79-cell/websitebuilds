@@ -49,7 +49,13 @@ export async function POST(request: NextRequest) {
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  let body: { matchDayId?: string } = {};
+  let body: {
+    matchDayId?: string;
+    actual_total_goals?: number | null;
+    ht_goals?: number | null;
+    total_corners?: number | null;
+    ht_corners?: number | null;
+  } = {};
   try {
     body = await request.json();
   } catch {
@@ -57,6 +63,32 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (body.matchDayId) {
+      const update: Record<string, number | null> = {};
+      if (Object.prototype.hasOwnProperty.call(body, 'actual_total_goals')) {
+        update.actual_total_goals = body.actual_total_goals ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'ht_goals')) {
+        update.ht_goals = body.ht_goals ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'total_corners')) {
+        update.total_corners = body.total_corners ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'ht_corners')) {
+        update.ht_corners = body.ht_corners ?? null;
+      }
+
+      if (Object.keys(update).length > 0) {
+        const { error: updateErr } = await supabase
+          .from('match_days')
+          .update(update)
+          .eq('id', body.matchDayId);
+        if (updateErr) {
+          return NextResponse.json({ error: updateErr.message }, { status: 500 });
+        }
+      }
+    }
+
     let matchDays: { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
 
     if (body.matchDayId) {
@@ -119,10 +151,29 @@ export async function POST(request: NextRequest) {
           .from('predictions')
           .update(update)
           .eq('id', p.id);
-        if (!updateErr) totalUpdated += 1;
-        else console.error('Failed to update prediction', p.id, updateErr);
+        if (!updateErr) {
+          totalUpdated += 1;
+          continue;
+        }
+
+        const errMsg = updateErr.message?.toLowerCase() || '';
+        if (update.points != null && errMsg.includes('column')) {
+          const { error: retryErr } = await supabase
+            .from('predictions')
+            .update({ points: update.points })
+            .eq('id', p.id);
+          if (!retryErr) {
+            totalUpdated += 1;
+          } else {
+            console.error('Failed to update prediction (retry)', p.id, retryErr);
+          }
+        } else {
+          console.error('Failed to update prediction', p.id, updateErr);
+        }
       }
     }
+
+    console.log(totalUpdated);
 
     return NextResponse.json({
       ok: true,

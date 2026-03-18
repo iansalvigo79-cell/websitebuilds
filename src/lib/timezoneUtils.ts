@@ -76,7 +76,7 @@ export function formatUKTime(isoString: string): string {
   if (!isoString) return '—';
   
   try {
-    const date = new Date(isoString);
+    const date = new Date(getUKTimestamp(isoString));
     
     // Format in UK timezone
     const formatter = new Intl.DateTimeFormat('en-GB', {
@@ -102,7 +102,67 @@ export function formatUKTime(isoString: string): string {
  * @param isoString - ISO string from database
  * @returns Timestamp (useful for comparisons with current time)
  */
+function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const values: Record<string, string> = {};
+  parts.forEach((part) => {
+    if (part.type !== 'literal') values[part.type] = part.value;
+  });
+
+  const asUTC = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+
+  return asUTC - date.getTime();
+}
+
+function parseTimeParts(timePart: string | undefined) {
+  if (!timePart) return { hour: 0, minute: 0, second: 0 };
+  const [hour, minute, second] = timePart.split(':');
+  return {
+    hour: Number(hour || 0),
+    minute: Number(minute || 0),
+    second: Number(second || 0),
+  };
+}
+
+/**
+ * Convert an ISO-like string stored without timezone to a UTC timestamp,
+ * assuming the stored value represents UK local time.
+ */
 export function getUKTimestamp(isoString: string): number {
   if (!isoString) return Date.now();
-  return new Date(isoString).getTime();
+
+  const hasTimezone = /([zZ]|[+-]\d{2}:\d{2})$/.test(isoString);
+  if (hasTimezone) {
+    return new Date(isoString).getTime();
+  }
+
+  const normalized = isoString.includes('T') ? isoString : isoString.replace(' ', 'T');
+  const [datePart, timePart] = normalized.split('T');
+  const [year, month, day] = (datePart || '').split('-').map(Number);
+  if (!year || !month || !day) {
+    return new Date(isoString).getTime();
+  }
+
+  const { hour, minute, second } = parseTimeParts(timePart);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
+  const offset = getTimeZoneOffsetMs(new Date(utcGuess), 'Europe/London');
+  return utcGuess - offset;
 }

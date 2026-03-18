@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { isMatchDayLocked } from '@/lib/predictionRules';
+import { isAfterCutoff } from '@/lib/predictionRules';
 
 /**
  * POST /api/predictions/update
@@ -20,9 +20,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: `Bearer ${token}` } },
   });
+  const adminSupabase = serviceKey
+    ? createClient(supabaseUrl, serviceKey)
+    : null;
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) {
@@ -52,7 +56,7 @@ export async function POST(request: NextRequest) {
 
   const { data: matchDay, error: mdError } = await supabase
     .from('match_days')
-    .select('id')
+    .select('id, cutoff_at')
     .eq('id', matchDayId)
     .single();
 
@@ -70,14 +74,54 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to load games' }, { status: 500 });
   }
 
-  if (isMatchDayLocked(games || [])) {
+  if (isAfterCutoff(matchDay.cutoff_at, games || [])) {
     return NextResponse.json(
       { error: 'Predictions are locked for this match day' },
       { status: 400 }
     );
   }
 
-  const { error: upsertError } = await supabase
+  const dbClient = adminSupabase ?? supabase;
+
+  const { data: existingProfile, error: profileLookupError } = await dbClient
+    .from('profiles')
+    .select('id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profileLookupError) {
+    return NextResponse.json({ error: 'Failed to verify user profile' }, { status: 500 });
+  }
+
+  if (!existingProfile) {
+    const fallbackName =
+      (user.user_metadata as Record<string, string> | null)?.display_name
+      || (user.user_metadata as Record<string, string> | null)?.name
+      || user.email?.split('@')[0]
+      || 'Player';
+    const safeSuffix = user.id.slice(0, 8);
+    const profilePayload: Record<string, string | number | null> = {
+      id: user.id,
+      display_name: fallbackName,
+      team_name: `${fallbackName}-${safeSuffix}`,
+      account_type: 'free',
+      subscription_status: 'inactive',
+      role: 0,
+    };
+
+    const { error: profileInsertError } = await dbClient
+      .from('profiles')
+      .insert(profilePayload);
+
+    if (profileInsertError) {
+      return NextResponse.json(
+        { error: 'Profile missing. Please complete your profile setup.' },
+        { status: 400 }
+      );
+    }
+  }
+
+  const { error: upsertError } = await dbClient
     .from('predictions')
     .upsert(
       {

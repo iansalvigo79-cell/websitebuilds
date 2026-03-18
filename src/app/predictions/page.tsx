@@ -412,7 +412,8 @@ function PredictionsContent() {
   const afterCutoff    = selectedMatchDay ? isAfterCutoff(selectedMatchDay.cutoff_at, selectedMatchDay.games) : false;
   const lockedByKickoff = selectedMatchDay ? isMatchDayLocked(selectedMatchDay.games) : false;
   const matchDayStatus = selectedMatchDay ? getMatchDayStatus(selectedMatchDay, selectedMatchDay.games) : 'upcoming';
-  const isOpenStatus = !isSeasonClosed && matchDayStatus === 'upcoming';
+  const predictionsLocked = isSeasonClosed || afterCutoff || lockedByKickoff;
+  const isOpenStatus = !predictionsLocked && matchDayStatus === 'upcoming';
   const competitionSections = selectedMatchDay ? (() => {
     const sections: { name: string; shortName: string | null; games: GameRow[] }[] = [];
     const seen = new Map<string, { name: string; shortName: string | null; games: GameRow[] }>();
@@ -739,7 +740,7 @@ function PredictionsContent() {
                         badgeBackground="rgba(22,163,74,0.15)"
                         value={ftGoals}
                         onChange={setFtGoals}
-                        disabled={afterCutoff || isSeasonClosed}
+                        disabled={predictionsLocked}
                         accentColor="#16a34a"
                       />
                       {!isPaidUser ? (
@@ -769,7 +770,7 @@ function PredictionsContent() {
                             badgeBackground="rgba(234,179,8,0.15)"
                             value={htGoals}
                             onChange={setHtGoals}
-                            disabled={afterCutoff || isSeasonClosed}
+                            disabled={predictionsLocked}
                             accentColor="#3b82f6"
                           />
                           <PredictionRow
@@ -779,7 +780,7 @@ function PredictionsContent() {
                             badgeBackground="rgba(234,179,8,0.15)"
                             value={ftCorners}
                             onChange={setFtCorners}
-                            disabled={afterCutoff || isSeasonClosed}
+                            disabled={predictionsLocked}
                             accentColor="#f97316"
                           />
                           <PredictionRow
@@ -789,7 +790,7 @@ function PredictionsContent() {
                             badgeBackground="rgba(234,179,8,0.15)"
                             value={htCorners}
                             onChange={setHtCorners}
-                            disabled={afterCutoff || isSeasonClosed}
+                            disabled={predictionsLocked}
                             accentColor="#a855f7"
                           />
                         </>
@@ -810,18 +811,26 @@ function PredictionsContent() {
                     <Button
                       variant="contained"
                       fullWidth
-                      disabled={isSaving || afterCutoff || isSeasonClosed}
+                      disabled={isSaving || predictionsLocked}
                       onClick={handleUpdatePrediction}
                       sx={{
                         py: 2,
                         fontSize: '1.1rem',
                         fontWeight: 900,
                         borderRadius: 2,
-                        backgroundColor: afterCutoff || isSeasonClosed ? '#555' : '#16a34a',
-                        '&:hover': { backgroundColor: afterCutoff || isSeasonClosed ? '#555' : '#15803d' },
+                        backgroundColor: predictionsLocked ? '#555' : '#16a34a',
+                        '&:hover': { backgroundColor: predictionsLocked ? '#555' : '#15803d' },
                       }}
                     >
-                      {isSeasonClosed ? 'SEASON ENDED' : afterCutoff ? 'PREDICTIONS LOCKED' : isSaving ? 'Saving' : 'Save Predictions'}
+                      {isSeasonClosed
+                        ? 'SEASON ENDED'
+                        : afterCutoff
+                          ? 'PREDICTIONS LOCKED'
+                          : lockedByKickoff
+                            ? 'MATCH STARTED'
+                            : isSaving
+                              ? 'Saving'
+                              : 'Save Predictions'}
                     </Button>
                   </Box>
                 </Stack>

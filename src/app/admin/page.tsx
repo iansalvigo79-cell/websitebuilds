@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Switch } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Switch } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -15,7 +15,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import GroupsIcon from '@mui/icons-material/Groups';
 import ModernLoader from '@/components/ui/ModernLoader';
-import { calculatePoints } from '@/lib/pointsCalculator';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -96,6 +95,9 @@ export default function AdminPage() {
   const [matchDayNameDraft, setMatchDayNameDraft] = useState('');
   const [savingMatchDayNameId, setSavingMatchDayNameId] = useState<string | null>(null);
   const [matchDaySeasonId, setMatchDaySeasonId] = useState<string>('');
+  const [deleteMatchDayDialogOpen, setDeleteMatchDayDialogOpen] = useState(false);
+  const [matchDayToDelete, setMatchDayToDelete] = useState<{ id: string; name?: string | null; match_date: string; cutoff_at: string; season_name?: string } | null>(null);
+  const [deletingMatchDay, setDeletingMatchDay] = useState(false);
   const [blogsList, setBlogsList] = useState<Blog[]>([]);
   const [blogsLoading, setBlogsLoading] = useState(false);
   const [blogDialogOpen, setBlogDialogOpen] = useState(false);
@@ -109,6 +111,38 @@ export default function AdminPage() {
     image_url: '',
     is_published: false,
   });
+
+  const selectMenuProps = {
+    PaperProps: {
+      sx: {
+        backgroundColor: '#0b1220',
+        border: '1px solid rgba(148, 163, 184, 0.25)',
+        color: '#e2e8f0',
+        boxShadow: '0 16px 32px rgba(0,0,0,0.4)',
+      },
+    },
+    MenuListProps: {
+      sx: { py: 0 },
+    },
+  };
+
+  const selectMenuItemSx = {
+    color: '#e2e8f0',
+    fontWeight: 600,
+    '&.Mui-selected': {
+      backgroundColor: 'rgba(22, 163, 74, 0.2)',
+      color: '#f8fafc',
+    },
+    '&.Mui-selected:hover': {
+      backgroundColor: 'rgba(22, 163, 74, 0.28)',
+    },
+    '&:hover': {
+      backgroundColor: 'rgba(148, 163, 184, 0.15)',
+    },
+    '&.Mui-disabled': {
+      color: 'rgba(148, 163, 184, 0.5)',
+    },
+  };
 
   useEffect(() => {
     const checkAdminAuth = async () => {
@@ -501,45 +535,30 @@ export default function AdminPage() {
 
     setComputingId(matchDayId);
     try {
-      const { data: predictions, error } = await supabase
-        .from('predictions')
-        .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
-        .eq('match_day_id', matchDayId);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
-      if (!predictions || predictions.length === 0) {
-        toast.error('No predictions found for this matchday');
+      const token = await getSession();
+      if (!token) {
+        toast.error('Please sign in again');
         return;
       }
 
-      let updated = 0;
-      await Promise.all(
-        predictions.map(async (p: any) => {
-          const update: Record<string, number | null> = {};
-          if (ftGoals != null) {
-            update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, ftGoals) : null;
-          }
-          if (htGoals != null) {
-            update.ht_goals_points = p.predicted_half_time_goals != null ? calculatePoints(p.predicted_half_time_goals, htGoals) : null;
-          }
-          if (totalCorners != null) {
-            update.corners_points = p.predicted_ft_corners != null ? calculatePoints(p.predicted_ft_corners, totalCorners) : null;
-          }
-          if (htCorners != null) {
-            update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;
-          }
-          if (Object.keys(update).length === 0) return;
-          const { error: updateErr } = await supabase
-            .from('predictions')
-            .update(update)
-            .eq('id', p.id);
-          if (!updateErr) updated += 1;
-        })
-      );
+      const res = await fetch('/api/admin/calculate-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          matchDayId,
+          actual_total_goals: ftGoals,
+          ht_goals: htGoals,
+          total_corners: totalCorners,
+          ht_corners: htCorners,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to calculate points');
+        return;
+      }
 
-      toast.success(`Points computed for ${updated} prediction(s)`);
+      toast.success(`Points awarded: ${data.predictionsUpdated ?? 0} prediction(s) updated.`);
       fetchMatchDaysForScores();
     } finally {
       setComputingId(null);
@@ -664,7 +683,7 @@ export default function AdminPage() {
             Delete &quot;{season.name}&quot;?
           </Typography>
           <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem' }}>
-            This action cannot be undone.
+            This will delete the season and all of its match days.
           </Typography>
           <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
             <Button
@@ -685,6 +704,46 @@ export default function AdminPage() {
                 closeToast?.();
                 setSeasonDeleteId(season.id);
                 try {
+                  const { data: matchDays, error: matchDaysError } = await supabase
+                    .from('match_days')
+                    .select('id')
+                    .eq('season_id', season.id);
+                  if (matchDaysError) {
+                    console.error('Supabase Match Day Fetch Error (admin):', matchDaysError);
+                    toast.error('Error checking match days: ' + matchDaysError.message);
+                    return;
+                  }
+
+                  const matchDayIds = (matchDays || []).map((md) => md.id);
+
+                  if (matchDayIds.length > 0) {
+                    const { error: predictionsError } = await supabase
+                      .from('predictions')
+                      .delete()
+                      .in('match_day_id', matchDayIds);
+                    if (predictionsError) {
+                      console.warn('Supabase Predictions Delete Warning:', predictionsError);
+                    }
+
+                    const { error: gamesError } = await supabase
+                      .from('games')
+                      .delete()
+                      .in('match_day_id', matchDayIds);
+                    if (gamesError) {
+                      console.warn('Supabase Games Delete Warning:', gamesError);
+                    }
+
+                    const { error: matchDayDeleteError } = await supabase
+                      .from('match_days')
+                      .delete()
+                      .eq('season_id', season.id);
+                    if (matchDayDeleteError) {
+                      console.error('Supabase Match Day Delete Error (admin):', matchDayDeleteError);
+                      toast.error('Error deleting match days: ' + matchDayDeleteError.message);
+                      return;
+                    }
+                  }
+
                   const { error } = await supabase
                     .from('seasons')
                     .delete()
@@ -775,22 +834,37 @@ export default function AdminPage() {
     }
   };
 
-  const handleDeleteMatchDay = async (matchDayId: string) => {
-    if (!window.confirm('Delete this match day?')) return;
+  const handleOpenDeleteMatchDayDialog = (matchDay: { id: string; name?: string | null; match_date: string; cutoff_at: string; season_name?: string }) => {
+    setMatchDayToDelete(matchDay);
+    setDeleteMatchDayDialogOpen(true);
+  };
+
+  const handleCloseDeleteMatchDayDialog = () => {
+    if (deletingMatchDay) return;
+    setDeleteMatchDayDialogOpen(false);
+    setMatchDayToDelete(null);
+  };
+
+  const handleConfirmDeleteMatchDay = async () => {
+    if (!matchDayToDelete) return;
+    setDeletingMatchDay(true);
     try {
       const { error } = await supabase
         .from('match_days')
         .delete()
-        .eq('id', matchDayId);
+        .eq('id', matchDayToDelete.id);
       if (error) {
         toast.error('Error deleting match day: ' + error.message);
         return;
       }
       toast.success('Match day deleted');
       fetchMatchDaysList();
+      handleCloseDeleteMatchDayDialog();
     } catch (err) {
       console.error('Unexpected Error (admin deleteMatchDay):', err);
       toast.error('An error occurred');
+    } finally {
+      setDeletingMatchDay(false);
     }
   };
 
@@ -1448,6 +1522,7 @@ export default function AdminPage() {
                     size="small"
                     value={matchDaySeasonId}
                     onChange={(e) => setMatchDaySeasonId(e.target.value)}
+                    SelectProps={{ MenuProps: selectMenuProps }}
                     sx={{
                       minWidth: 200,
                       input: { color: '#fff' },
@@ -1456,7 +1531,7 @@ export default function AdminPage() {
                     }}
                   >
                     {seasons.map((s) => (
-                      <MenuItem key={s.id} value={s.id} sx={{ color: '#0f172a' }}>
+                      <MenuItem key={s.id} value={s.id} sx={selectMenuItemSx}>
                         {s.name}{s.is_active ? '' : ' (Closed)'}
                       </MenuItem>
                     ))}
@@ -1608,7 +1683,7 @@ export default function AdminPage() {
                             <Button
                               size="small"
                               variant="outlined"
-                              onClick={() => handleDeleteMatchDay(md.id)}
+                              onClick={() => handleOpenDeleteMatchDayDialog(md)}
                               sx={{
                                 borderColor: 'rgba(239, 68, 68, 0.6)',
                                 color: '#ef4444',
@@ -2768,6 +2843,7 @@ export default function AdminPage() {
                 select
                 value={matchDayForm.seasonId}
                 onChange={(e) => setMatchDayForm({ ...matchDayForm, seasonId: e.target.value })}
+                SelectProps={{ MenuProps: selectMenuProps }}
                 fullWidth
                 sx={{ 
                   input: { color: '#fff' }, 
@@ -2776,7 +2852,7 @@ export default function AdminPage() {
                 }}
               >
                 {seasons.map((s) => (
-                  <MenuItem key={s.id} value={s.id} disabled={!s.is_active} sx={{ color: '#0f172a' }}>
+                  <MenuItem key={s.id} value={s.id} disabled={!s.is_active} sx={selectMenuItemSx}>
                     {s.name} ({s.start_date} to {s.end_date}){s.is_active ? '' : ' (Closed)'}
                   </MenuItem>
                 ))}
@@ -2824,6 +2900,65 @@ export default function AdminPage() {
               </Box>
             </Stack>
           </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={deleteMatchDayDialogOpen}
+          onClose={handleCloseDeleteMatchDayDialog}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle sx={{ backgroundColor: '#1e293b', color: '#fff', fontWeight: 800 }}>
+            Delete Match Day?
+          </DialogTitle>
+          <DialogContent sx={{ backgroundColor: '#0f172a', pt: 3 }}>
+            <Typography sx={{ color: '#cbd5f5', fontSize: '0.95rem', mb: 2 }}>
+              This will permanently remove the match day and any related games. This action cannot be undone.
+            </Typography>
+            <Box
+              sx={{
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 2,
+                p: 2,
+                backgroundColor: 'rgba(15, 23, 42, 0.6)',
+              }}
+            >
+              <Typography sx={{ color: '#fff', fontWeight: 700 }}>
+                {matchDayToDelete?.name || 'Match Day'}
+              </Typography>
+              <Typography sx={{ color: '#94a3b8', fontSize: '0.85rem', mt: 0.5 }}>
+                {matchDayToDelete?.match_date ? new Date(matchDayToDelete.match_date).toLocaleDateString('en-GB') : 'Date not set'}
+              </Typography>
+              {matchDayToDelete?.season_name && (
+                <Typography sx={{ color: '#64748b', fontSize: '0.8rem', mt: 0.5 }}>
+                  Season: {matchDayToDelete.season_name}
+                </Typography>
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ backgroundColor: '#0f172a', px: 3, pb: 2 }}>
+            <Button
+              onClick={handleCloseDeleteMatchDayDialog}
+              disabled={deletingMatchDay}
+              sx={{ color: '#94a3b8', textTransform: 'none', fontWeight: 700 }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmDeleteMatchDay}
+              disabled={deletingMatchDay}
+              variant="contained"
+              sx={{
+                backgroundColor: '#ef4444',
+                color: '#fff',
+                fontWeight: 800,
+                textTransform: 'none',
+                '&:hover': { backgroundColor: '#dc2626' },
+              }}
+            >
+              {deletingMatchDay ? 'Deleting...' : 'Delete Match Day'}
+            </Button>
+          </DialogActions>
         </Dialog>
 
         <Dialog open={blogDialogOpen} onClose={() => setBlogDialogOpen(false)} maxWidth="md" fullWidth>

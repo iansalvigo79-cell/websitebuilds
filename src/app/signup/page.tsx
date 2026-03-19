@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Button, Container, TextField, Typography, Stack, Checkbox, FormControlLabel } from '@mui/material';
+import { Box, Button, Container, MenuItem, TextField, Typography, Stack, Checkbox, FormControlLabel } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -9,6 +9,29 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ModernLoader from '@/components/ui/ModernLoader';
 
+const COUNTRY_CODES = [
+  { code: '+1', label: 'United States (+1)' },
+  { code: '+44', label: 'United Kingdom (+44)' },
+  { code: '+353', label: 'Ireland (+353)' },
+  { code: '+61', label: 'Australia (+61)' },
+  { code: '+64', label: 'New Zealand (+64)' },
+  { code: '+27', label: 'South Africa (+27)' },
+  { code: '+234', label: 'Nigeria (+234)' },
+  { code: '+233', label: 'Ghana (+233)' },
+  { code: '+254', label: 'Kenya (+254)' },
+  { code: '+91', label: 'India (+91)' },
+  { code: '+92', label: 'Pakistan (+92)' },
+  { code: '+971', label: 'United Arab Emirates (+971)' },
+  { code: '+974', label: 'Qatar (+974)' },
+  { code: '+966', label: 'Saudi Arabia (+966)' },
+  { code: '+49', label: 'Germany (+49)' },
+  { code: '+33', label: 'France (+33)' },
+  { code: '+34', label: 'Spain (+34)' },
+  { code: '+39', label: 'Italy (+39)' },
+  { code: '+31', label: 'Netherlands (+31)' },
+  { code: '+46', label: 'Sweden (+46)' },
+];
+
 export default function SignUpPage() {
   const router = useRouter();
   const [formData, setFormData] = useState({
@@ -16,9 +39,11 @@ export default function SignUpPage() {
     lastName: '',
     displayName: '',
     email: '',
-    whatsapp: '',
+    phoneCountryCode: '+1',
+    phoneNumber: '',
     password: '',
     confirmPassword: '',
+    confirmAge: false,
     termsAccepted: false,
   });
 
@@ -26,10 +51,11 @@ export default function SignUpPage() {
     firstName: '',
     lastName: '',
     displayName: '',
-    whatsapp: '',
+    phoneNumber: '',
     email: '',
     password: '',
     confirmPassword: '',
+    confirmAge: '',
     termsAccepted: '',
   });
 
@@ -45,10 +71,11 @@ export default function SignUpPage() {
       firstName: '',
       lastName: '',
       displayName: '',
-      whatsapp: '',
+      phoneNumber: '',
       email: '',
       password: '',
       confirmPassword: '',
+      confirmAge: '',
       termsAccepted: '',
     };
 
@@ -68,8 +95,8 @@ export default function SignUpPage() {
       newErrors.displayName = 'Display name must be 20 characters or less';
     }
 
-    if (formData.whatsapp.trim() && !formData.whatsapp.trim().startsWith('+')) {
-      newErrors.whatsapp = 'WhatsApp number must start with +';
+    if (formData.phoneNumber.trim() && !formData.phoneCountryCode) {
+      newErrors.phoneNumber = 'Please select a country code';
     }
 
     if (!formData.email.trim()) {
@@ -88,6 +115,10 @@ export default function SignUpPage() {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    if (!formData.confirmAge) {
+      newErrors.confirmAge = 'You must confirm you are over 18';
     }
 
     if (!formData.termsAccepted) {
@@ -140,6 +171,12 @@ export default function SignUpPage() {
       }
 
       if (authData.user) {
+        const normalizedDigits = formData.phoneNumber.trim().replace(/[^\d]/g, '');
+        const combinedPhone = formData.phoneNumber.trim()
+          ? (formData.phoneCountryCode
+            ? `${formData.phoneCountryCode}${normalizedDigits}`
+            : formData.phoneNumber.trim())
+          : null;
         const { error: profileError } = await supabase
           .from('profiles')
           .upsert({
@@ -148,7 +185,7 @@ export default function SignUpPage() {
             first_name: formData.firstName.trim(),
             last_name: formData.lastName.trim(),
             display_name: formData.displayName.trim() || null,
-            whatsapp: formData.whatsapp.trim() || null,
+            whatsapp: combinedPhone,
             account_type: 'free',
             subscription_status: 'inactive',
             role: 0,
@@ -426,40 +463,80 @@ export default function SignUpPage() {
                   textTransform: 'uppercase',
                 }}
               >
-                WhatsApp Number
+                WhatsApp / Phone Number
               </Typography>
-              <TextField
-                name="whatsapp"
-                placeholder="+44 7700 900000"
-                variant="outlined"
-                fullWidth
-                value={formData.whatsapp}
-                onChange={handleChange}
-                error={!!errors.whatsapp}
-                helperText={errors.whatsapp || 'Include your country code'}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#111827',
-                    borderRadius: '8px',
-                    border: errors.whatsapp ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
-                    color: '#fff',
-                    '&:hover': {
-                      borderColor: errors.whatsapp ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
+              <Stack spacing={2} direction={{ xs: 'column', md: 'row' }}>
+                <TextField
+                  select
+                  name="phoneCountryCode"
+                  variant="outlined"
+                  fullWidth
+                  value={formData.phoneCountryCode}
+                  onChange={handleChange}
+                  helperText="Country code"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#111827',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      color: '#fff',
+                      '&:hover': {
+                        borderColor: 'rgba(255,255,255,0.2)',
+                      },
+                      '&.Mui-focused': {
+                        borderColor: '#16a34a',
+                      },
                     },
-                    '&.Mui-focused': {
-                      borderColor: errors.whatsapp ? '#ff6b6b' : '#16a34a',
+                    '& .MuiOutlinedInput-input::placeholder': {
+                      color: '#888',
+                      opacity: 1,
                     },
-                  },
-                  '& .MuiOutlinedInput-input::placeholder': {
-                    color: '#888',
-                    opacity: 1,
-                  },
-                  '& .MuiFormHelperText-root': {
-                    color: errors.whatsapp ? '#ff6b6b' : '#94a3b8',
-                    marginTop: '4px',
-                  },
-                }}
-              />
+                    '& .MuiFormHelperText-root': {
+                      color: '#94a3b8',
+                      marginTop: '4px',
+                    },
+                  }}
+                >
+                  <MenuItem value="">Other</MenuItem>
+                  {COUNTRY_CODES.map((entry) => (
+                    <MenuItem key={entry.code} value={entry.code}>
+                      {entry.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  name="phoneNumber"
+                  placeholder="7012345678"
+                  variant="outlined"
+                  fullWidth
+                  value={formData.phoneNumber}
+                  onChange={handleChange}
+                  error={!!errors.phoneNumber}
+                  helperText={errors.phoneNumber || 'Optional'}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#111827',
+                      borderRadius: '8px',
+                      border: errors.phoneNumber ? '1px solid #ff6b6b' : '1px solid rgba(255,255,255,0.12)',
+                      color: '#fff',
+                      '&:hover': {
+                        borderColor: errors.phoneNumber ? '#ff6b6b' : 'rgba(255,255,255,0.2)',
+                      },
+                      '&.Mui-focused': {
+                        borderColor: errors.phoneNumber ? '#ff6b6b' : '#16a34a',
+                      },
+                    },
+                    '& .MuiOutlinedInput-input::placeholder': {
+                      color: '#888',
+                      opacity: 1,
+                    },
+                    '& .MuiFormHelperText-root': {
+                      color: errors.phoneNumber ? '#ff6b6b' : '#94a3b8',
+                      marginTop: '4px',
+                    },
+                  }}
+                />
+              </Stack>
             </Box>
 
             <Box>
@@ -556,7 +633,34 @@ export default function SignUpPage() {
                   },
                 }}
               />
+            </Box>            <Box>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    name="confirmAge"
+                    checked={formData.confirmAge}
+                    onChange={handleChange}
+                    sx={{
+                      color: errors.confirmAge ? '#ff6b6b' : '#16a34a',
+                      '&.Mui-checked': {
+                        color: errors.confirmAge ? '#ff6b6b' : '#16a34a',
+                      },
+                    }}
+                  />
+                }
+                label={
+                  <Typography sx={{ color: '#999', fontSize: '0.85rem' }}>
+                    I confirm I am over 18 years old
+                  </Typography>
+                }
+              />
+              {errors.confirmAge && (
+                <Typography sx={{ color: '#ff6b6b', fontSize: '0.75rem', mt: 0.5 }}>
+                  {errors.confirmAge}
+                </Typography>
+              )}
             </Box>
+
 
             <Box>
               <FormControlLabel
@@ -643,3 +747,13 @@ export default function SignUpPage() {
     </Box>
   );
 }
+
+
+
+
+
+
+
+
+
+

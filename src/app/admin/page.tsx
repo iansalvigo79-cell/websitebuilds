@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Switch } from '@mui/material';
+import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Switch, Autocomplete } from '@mui/material';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -1790,63 +1790,75 @@ export default function AdminPage() {
                     </MenuItem>
                   ))}
                 </TextField>
-                <TextField
-                  label="Home Team"
-                  select
-                  value={createGameForm.homeTeamId}
-                  onChange={(e) => setCreateGameForm({ ...createGameForm, homeTeamId: e.target.value })}
-                  fullWidth
-                  sx={{
-                    '& .MuiInputBase-root': { 
-                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
-                      color: '#e2e8f0', 
-                      borderRadius: 2, 
-                      border: '1.5px solid rgba(139, 92, 246, 0.4)',
-                      transition: 'all 0.2s ease',
-                      '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
-                      '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
-                    },
-                    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-                    '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
-                    '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                <Autocomplete
+                  options={teamsList}
+                  value={teamsList.find((t) => t.id === createGameForm.homeTeamId) || null}
+                  onChange={(_event, newValue) => {
+                    const nextHomeId = newValue?.id ?? '';
+                    setCreateGameForm((prev) => ({
+                      ...prev,
+                      homeTeamId: nextHomeId,
+                      awayTeamId: prev.awayTeamId === nextHomeId ? '' : prev.awayTeamId,
+                    }));
                   }}
-                >
-                  {teamsList.map((t) => (
-                    <MenuItem key={t.id} value={t.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
-                      {t.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Away Team"
-                  select
-                  value={createGameForm.awayTeamId}
-                  onChange={(e) => setCreateGameForm({ ...createGameForm, awayTeamId: e.target.value })}
-                  fullWidth
+                  getOptionLabel={(option) => option.name || ''}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  noOptionsText="No teams found"
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Home Team"
+                      fullWidth
+                      sx={{
+                        '& .MuiInputBase-root': { 
+                          backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                          color: '#e2e8f0', 
+                          borderRadius: 2, 
+                          border: '1.5px solid rgba(139, 92, 246, 0.4)',
+                          transition: 'all 0.2s ease',
+                          '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
+                          '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
+                        },
+                        '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                        '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
+                        '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                      }}
+                    />
+                  )}
+                />
+                <Autocomplete
+                  options={teamsList.filter((t) => t.id !== createGameForm.homeTeamId)}
+                  value={teamsList.find((t) => t.id === createGameForm.awayTeamId) || null}
+                  onChange={(_event, newValue) => {
+                    const nextAwayId = newValue?.id ?? '';
+                    setCreateGameForm((prev) => ({ ...prev, awayTeamId: nextAwayId }));
+                  }}
+                  getOptionLabel={(option) => option.name || ''}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                  noOptionsText="No teams found"
                   disabled={!createGameForm.homeTeamId}
-                  sx={{
-                    '& .MuiInputBase-root': { 
-                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
-                      color: '#e2e8f0', 
-                      borderRadius: 2, 
-                      border: '1.5px solid rgba(139, 92, 246, 0.4)',
-                      transition: 'all 0.2s ease',
-                      '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
-                      '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
-                    },
-                    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
-                    '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
-                    '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
-                  }}
-                >
-                  {teamsList
-                    .filter((t) => t.id !== createGameForm.homeTeamId)
-                    .map((t) => (
-                      <MenuItem key={t.id} value={t.id} sx={{ color: '#e2e8f0', backgroundColor: '#111827', '&:hover': { backgroundColor: '#1e293b' }, '&.Mui-selected': { backgroundColor: '#1e293b !important', color: '#8b5cf6' } }}>
-                        {t.name}
-                      </MenuItem>
-                    ))}
-                </TextField>
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Away Team"
+                      fullWidth
+                      sx={{
+                        '& .MuiInputBase-root': { 
+                          backgroundColor: 'rgba(15, 23, 42, 0.6)', 
+                          color: '#e2e8f0', 
+                          borderRadius: 2, 
+                          border: '1.5px solid rgba(139, 92, 246, 0.4)',
+                          transition: 'all 0.2s ease',
+                          '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
+                          '&.Mui-focused': { borderColor: '#8b5cf6', boxShadow: '0 0 12px rgba(139, 92, 246, 0.3)' }
+                        },
+                        '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+                        '& .MuiInputLabel-root': { color: '#a78bfa', fontWeight: 500 },
+                        '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
+                      }}
+                    />
+                  )}
+                />
                 <TextField
                   label="Kickoff Time"
                   type="datetime-local"

@@ -12,14 +12,12 @@ import {
   Menu,
   MenuItem,
   Divider,
-  Badge,
 } from '@mui/material';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter, usePathname } from 'next/navigation';
-import NotificationsIcon from '@mui/icons-material/Notifications';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
@@ -165,32 +163,9 @@ export default function Header() {
 
           {user ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              {/* Notification Bell Icon with Badge */}
-              <IconButton
-                sx={{
-                  color: '#999',
-                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#fff' },
-                }}
-              >
-                <Badge
-                  badgeContent={1}
-                  sx={{
-                    '& .MuiBadge-badge': {
-                      backgroundColor: '#ff6b35',
-                      color: '#fff',
-                      fontSize: '0.6rem',
-                      minWidth: '12px',
-                      height: '12px',
-                      padding: 0,
-                    },
-                  }}
-                >
-                  <NotificationsIcon />
-                </Badge>
-              </IconButton>
-
               {/* Settings Gear Icon */}
               <IconButton
+                onClick={() => router.push('/settings')}
                 sx={{
                   color: '#999',
                   '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)', color: '#fff' },
@@ -275,7 +250,10 @@ export default function Header() {
 
                   {/* Menu Items */}
                   <MenuItem
-                    onClick={handleClose}
+                    onClick={() => {
+                      handleClose();
+                      router.push('/profile');
+                    }}
                     sx={{
                       color: '#fff',
                       py: 1,
@@ -288,7 +266,10 @@ export default function Header() {
                     <Typography sx={{ fontSize: '0.875rem' }}>My Profile</Typography>
                   </MenuItem>
                   <MenuItem
-                    onClick={handleClose}
+                    onClick={() => {
+                      handleClose();
+                      router.push('/settings');
+                    }}
                     sx={{
                       color: '#fff',
                       py: 1,
@@ -314,7 +295,7 @@ export default function Header() {
                     }}
                   >
                     <AttachMoneyIcon sx={{ mr: 1.5, fontSize: '1rem', color: '#999' }} />
-                    <Typography sx={{ fontSize: '0.875rem' }}>Pricing</Typography>
+                    <Typography sx={{ fontSize: '0.875rem' }}>Subscription</Typography>
                   </MenuItem>
                   <MenuItem
                     onClick={handleFaqNavigation}

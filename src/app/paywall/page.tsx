@@ -9,6 +9,12 @@ import CheckIcon from '@mui/icons-material/Check';
 import { toast } from 'react-toastify';
 import ModernLoader from '@/components/ui/ModernLoader';
 
+const GBP_PRICE = 5;
+const GBP_CURRENCY = 'GBP';
+const GEO_CACHE_KEY = 'geo_currency_cache_v1';
+const RATE_CACHE_KEY = 'gbp_rates_cache_v1';
+const CACHE_TTL_MS = 1000 * 60 * 60 * 12;
+
 // ── Separate component for useSearchParams ────────────────────────────────────
 // Must be isolated so it can be wrapped in its own <Suspense>
 function CancelledToast() {
@@ -34,6 +40,9 @@ function PaywallContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [isPortalLoading, setIsPortalLoading] = useState(false);
   const [isCheckingProfile, setIsCheckingProfile] = useState(true);
+  const [detectedCurrency, setDetectedCurrency] = useState(GBP_CURRENCY);
+  const [convertedPrice, setConvertedPrice] = useState<number | null>(null);
+  const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
 
   const fetchAuthAndProfile = useCallback(async (showLoading = true) => {
     try {
@@ -71,6 +80,112 @@ function PaywallContent() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [user, fetchAuthAndProfile]);
+
+  const readCache = (key: string) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { timestamp?: number };
+      if (!parsed?.timestamp || Date.now() - parsed.timestamp > CACHE_TTL_MS) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const writeCache = (key: string, value: Record<string, unknown>) => {
+    try {
+      localStorage.setItem(key, JSON.stringify({ ...value, timestamp: Date.now() }));
+    } catch {
+      // ignore cache failures
+    }
+  };
+
+  const formatCurrency = (value: number, currency: string, digits?: number) => {
+    const options: Intl.NumberFormatOptions = { style: 'currency', currency };
+    if (typeof digits === 'number') {
+      options.minimumFractionDigits = digits;
+      options.maximumFractionDigits = digits;
+    }
+    return new Intl.NumberFormat(undefined, options).format(value);
+  };
+
+  const formatRoundedCurrency = (value: number, currency: string) => {
+    const resolved = new Intl.NumberFormat(undefined, { style: 'currency', currency }).resolvedOptions();
+    const digits = resolved.maximumFractionDigits ?? 2;
+    const rounded = Number(value.toFixed(digits));
+    return formatCurrency(rounded, currency, digits);
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const resolvePricingCurrency = async () => {
+      let currency = GBP_CURRENCY;
+      let countryName: string | null = null;
+
+      try {
+        const cachedGeo = readCache(GEO_CACHE_KEY) as { currency?: string } | null;
+        if (cachedGeo?.currency) {
+          currency = cachedGeo.currency;
+          countryName = (cachedGeo as { country?: string }).country ?? null;
+        } else {
+          const geoRes = await fetch('https://ipapi.co/json/');
+          if (geoRes.ok) {
+            const geoData = await geoRes.json();
+            if (geoData?.currency) {
+              currency = geoData.currency;
+              countryName = geoData.country_name ?? null;
+              writeCache(GEO_CACHE_KEY, { currency: geoData.currency, country: geoData.country_name });
+            }
+          }
+        }
+      } catch {
+        currency = GBP_CURRENCY;
+      }
+
+      if (!isMounted) return;
+      setDetectedCurrency(currency || GBP_CURRENCY);
+      setDetectedCountry(countryName);
+
+      if (!currency || currency === GBP_CURRENCY) {
+        setConvertedPrice(null);
+        return;
+      }
+
+      try {
+        let rates: Record<string, number> | null = null;
+        const cachedRates = readCache(RATE_CACHE_KEY) as { rates?: Record<string, number> } | null;
+        if (cachedRates?.rates) {
+          rates = cachedRates.rates;
+        } else {
+          const rateRes = await fetch('https://open.er-api.com/v6/latest/GBP');
+          if (rateRes.ok) {
+            const rateData = await rateRes.json();
+            if (rateData?.rates) {
+              rates = rateData.rates as Record<string, number>;
+              writeCache(RATE_CACHE_KEY, { rates: rateData.rates });
+            }
+          }
+        }
+
+        const rate = rates?.[currency];
+        if (!isMounted) return;
+        if (rate) {
+          setConvertedPrice(GBP_PRICE * rate);
+        } else {
+          setConvertedPrice(null);
+        }
+      } catch {
+        if (isMounted) setConvertedPrice(null);
+      }
+    };
+
+    resolvePricingCurrency();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleCheckout = async () => {
     setIsLoading(true);
@@ -163,6 +278,14 @@ function PaywallContent() {
   }
 
   const isPaid = profile?.account_type === 'paid' || Boolean(profile?.stripe_subscription_id);
+  const showConverted = detectedCurrency !== GBP_CURRENCY && convertedPrice !== null;
+  const primaryPriceLabel = showConverted
+    ? `~${formatRoundedCurrency(convertedPrice as number, detectedCurrency)}`
+    : formatCurrency(GBP_PRICE, GBP_CURRENCY, 0);
+  const billedPriceLabel = formatCurrency(GBP_PRICE, GBP_CURRENCY, 2);
+  const currencyMeta = detectedCurrency !== GBP_CURRENCY
+    ? `Detected currency: ${detectedCurrency}${detectedCountry ? ` (${detectedCountry})` : ''}`
+    : null;
 
   return (
     <Box sx={{ backgroundColor: '#0a0a0a' }}>
@@ -189,9 +312,26 @@ function PaywallContent() {
           >
             <CardContent sx={{ p: { xs: 3, md: 5 } }}>
               <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 1, mb: 3 }}>
-                <Typography sx={{ fontSize: '4rem', fontWeight: 900, color: '#fff' }}>£5</Typography>
+                <Typography sx={{ fontSize: '4rem', fontWeight: 900, color: '#fff' }}>
+                  {primaryPriceLabel}
+                </Typography>
                 <Typography sx={{ fontSize: '1.2rem', color: '#9ca3af' }}>/month</Typography>
               </Box>
+              {showConverted && (
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', fontWeight: 600 }}>
+                    {`Billed as ${billedPriceLabel} GBP`}
+                  </Typography>
+                  <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', mt: 0.5 }}>
+                    {`Price shown is an estimate. You will be charged ${billedPriceLabel} GBP. Your bank may apply exchange rate fees.`}
+                  </Typography>
+                  {currencyMeta && (
+                    <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem', mt: 0.6 }}>
+                      {currencyMeta}
+                    </Typography>
+                  )}
+                </Box>
+              )}
 
               <Stack spacing={1.5} sx={{ mb: 4 }}>
                 {[
@@ -339,3 +479,6 @@ export default function PaywallPage() {
     </>
   );
 }
+
+
+

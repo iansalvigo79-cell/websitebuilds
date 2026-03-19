@@ -1,12 +1,55 @@
 "use client";
 
-import { Box, Button, Container, Stack, TextField, Typography } from '@mui/material';
+import { Box, Button, Container, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ModernLoader from '@/components/ui/ModernLoader';
+
+const COUNTRY_CODES = [
+  { code: '+1', label: 'United States (+1)' },
+  { code: '+44', label: 'United Kingdom (+44)' },
+  { code: '+353', label: 'Ireland (+353)' },
+  { code: '+61', label: 'Australia (+61)' },
+  { code: '+64', label: 'New Zealand (+64)' },
+  { code: '+27', label: 'South Africa (+27)' },
+  { code: '+234', label: 'Nigeria (+234)' },
+  { code: '+233', label: 'Ghana (+233)' },
+  { code: '+254', label: 'Kenya (+254)' },
+  { code: '+91', label: 'India (+91)' },
+  { code: '+92', label: 'Pakistan (+92)' },
+  { code: '+971', label: 'United Arab Emirates (+971)' },
+  { code: '+974', label: 'Qatar (+974)' },
+  { code: '+966', label: 'Saudi Arabia (+966)' },
+  { code: '+49', label: 'Germany (+49)' },
+  { code: '+33', label: 'France (+33)' },
+  { code: '+34', label: 'Spain (+34)' },
+  { code: '+39', label: 'Italy (+39)' },
+  { code: '+31', label: 'Netherlands (+31)' },
+  { code: '+46', label: 'Sweden (+46)' },
+];
+
+const COUNTRY_CODES_BY_LENGTH = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
+
+const splitPhone = (value?: string | null) => {
+  if (!value) {
+    return { phoneCountryCode: '+1', phoneNumber: '' };
+  }
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('+')) {
+    return { phoneCountryCode: '+1', phoneNumber: trimmed };
+  }
+  const match = COUNTRY_CODES_BY_LENGTH.find((entry) => trimmed.startsWith(entry.code));
+  if (match) {
+    return {
+      phoneCountryCode: match.code,
+      phoneNumber: trimmed.slice(match.code.length).trim(),
+    };
+  }
+  return { phoneCountryCode: '', phoneNumber: trimmed };
+};
 
 function SetupParamHandler({ onSetupChange }: { onSetupChange: (value: boolean) => void }) {
   const searchParams = useSearchParams();
@@ -25,13 +68,14 @@ export default function ProfilePage() {
     firstName: '',
     lastName: '',
     displayName: '',
-    whatsapp: '',
+    phoneCountryCode: '+1',
+    phoneNumber: '',
   });
   const [errors, setErrors] = useState({
     firstName: '',
     lastName: '',
     displayName: '',
-    whatsapp: '',
+    phoneNumber: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isFetching, setIsFetching] = useState(true);
@@ -57,11 +101,13 @@ export default function ProfilePage() {
         toast.error('Failed to load profile');
       }
 
+      const phoneParts = splitPhone(profile?.whatsapp);
       setFormData({
         firstName: profile?.first_name ?? '',
         lastName: profile?.last_name ?? '',
         displayName: profile?.display_name ?? '',
-        whatsapp: profile?.whatsapp ?? '',
+        phoneCountryCode: phoneParts.phoneCountryCode,
+        phoneNumber: phoneParts.phoneNumber,
       });
     } catch (err) {
       console.error('Profile fetch error:', err);
@@ -80,7 +126,7 @@ export default function ProfilePage() {
       firstName: '',
       lastName: '',
       displayName: '',
-      whatsapp: '',
+      phoneNumber: '',
     };
 
     if (!formData.firstName.trim()) {
@@ -99,8 +145,8 @@ export default function ProfilePage() {
       newErrors.displayName = 'Display name must be 20 characters or less';
     }
 
-    if (formData.whatsapp.trim() && !formData.whatsapp.trim().startsWith('+')) {
-      newErrors.whatsapp = 'WhatsApp number must start with +';
+    if (formData.phoneNumber.trim() && !formData.phoneCountryCode) {
+      newErrors.phoneNumber = 'Please select a country code';
     }
 
     setErrors(newErrors);
@@ -137,13 +183,19 @@ export default function ProfilePage() {
         return;
       }
 
+      const normalizedDigits = formData.phoneNumber.trim().replace(/[^\d]/g, '');
+      const combinedPhone = formData.phoneNumber.trim()
+        ? (formData.phoneCountryCode
+          ? `${formData.phoneCountryCode}${normalizedDigits}`
+          : formData.phoneNumber.trim())
+        : null;
       const { error } = await supabase
         .from('profiles')
         .update({
           display_name: formData.displayName.trim() || null,
           first_name: formData.firstName.trim(),
           last_name: formData.lastName.trim(),
-          whatsapp: formData.whatsapp.trim() || null,
+          whatsapp: combinedPhone,
         })
         .eq('id', user.id);
 
@@ -355,19 +407,38 @@ export default function ProfilePage() {
                   textTransform: 'uppercase',
                 }}
               >
-                WhatsApp Number
+                WhatsApp / Phone Number
               </Typography>
-              <TextField
-                name="whatsapp"
-                placeholder="e.g. +44 7700 900000"
-                variant="outlined"
-                fullWidth
-                value={formData.whatsapp}
-                onChange={handleChange}
-                error={!!errors.whatsapp}
-                helperText={errors.whatsapp || 'Include country code'}
-                sx={getInputStyles(!!errors.whatsapp)}
-              />
+              <Stack spacing={2} direction={{ xs: 'column', md: 'row' }}>
+                <TextField
+                  select
+                  name="phoneCountryCode"
+                  variant="outlined"
+                  fullWidth
+                  value={formData.phoneCountryCode}
+                  onChange={handleChange}
+                  helperText="Country code"
+                  sx={getInputStyles(false)}
+                >
+                  <MenuItem value="">Other</MenuItem>
+                  {COUNTRY_CODES.map((entry) => (
+                    <MenuItem key={entry.code} value={entry.code}>
+                      {entry.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  name="phoneNumber"
+                  placeholder="7012345678"
+                  variant="outlined"
+                  fullWidth
+                  value={formData.phoneNumber}
+                  onChange={handleChange}
+                  error={!!errors.phoneNumber}
+                  helperText={errors.phoneNumber || 'Optional'}
+                  sx={getInputStyles(!!errors.phoneNumber)}
+                />
+              </Stack>
             </Box>
 
             <Button
@@ -405,4 +476,11 @@ export default function ProfilePage() {
     </Box>
   );
 }
+
+
+
+
+
+
+
 

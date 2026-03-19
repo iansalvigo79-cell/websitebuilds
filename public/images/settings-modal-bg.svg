@@ -1,0 +1,36 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="glassSoft" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Primary modal -->
+  <rect x="300" y="140" width="1000" height="580" rx="28" fill="url(#glass)"/>
+  <rect x="300" y="140" width="1000" height="72" rx="28" fill="#ffffff" fill-opacity="0.12"/>
+  <rect x="340" y="170" width="120" height="16" rx="8" fill="#ffffff" fill-opacity="0.24"/>
+  <rect x="480" y="170" width="90" height="16" rx="8" fill="#ffffff" fill-opacity="0.18"/>
+  <rect x="300" y="140" width="1000" height="580" rx="28" stroke="#ffffff" stroke-opacity="0.2"/>
+
+  <!-- Secondary modal (left) -->
+  <rect x="120" y="520" width="540" height="310" rx="22" fill="url(#glassSoft)"/>
+  <rect x="120" y="520" width="540" height="58" rx="22" fill="#ffffff" fill-opacity="0.1"/>
+  <rect x="150" y="542" width="90" height="14" rx="7" fill="#ffffff" fill-opacity="0.18"/>
+  <rect x="120" y="520" width="540" height="310" rx="22" stroke="#ffffff" stroke-opacity="0.16"/>
+
+  <!-- Secondary modal (right) -->
+  <rect x="980" y="90" width="460" height="280" rx="20" fill="url(#glassSoft)"/>
+  <rect x="980" y="90" width="460" height="54" rx="20" fill="#ffffff" fill-opacity="0.1"/>
+  <rect x="1010" y="110" width="110" height="14" rx="7" fill="#ffffff" fill-opacity="0.18"/>
+  <rect x="980" y="90" width="460" height="280" rx="20" stroke="#ffffff" stroke-opacity="0.16"/>
+
+  <!-- Thin dividers -->
+  <rect x="360" y="260" width="860" height="2" rx="1" fill="#ffffff" fill-opacity="0.08"/>
+  <rect x="360" y="330" width="760" height="2" rx="1" fill="#ffffff" fill-opacity="0.06"/>
+  <rect x="360" y="400" width="700" height="2" rx="1" fill="#ffffff" fill-opacity="0.05"/>
+</svg>

@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
 import { Box, Typography, Stack, Button, Card, CardContent } from '@mui/material';
+import LockIcon from '@mui/icons-material/Lock';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -30,28 +31,36 @@ interface OpenMatchday {
   name?: string | null;
   match_date: string;
   cutoff_at: string;
+  seasons?: { name?: string | null } | null;
   games?: OpenMatchdayGame[] | null;
 }
 
+interface PredictionInputs {
+  ftGoals: string;
+  htGoals: string;
+  ftCorners: string;
+  htCorners: string;
+}
+
+const defaultPredictionInputs: PredictionInputs = {
+  ftGoals: '',
+  htGoals: '',
+  ftCorners: '',
+  htCorners: '',
+};
+
 export default function DashboardTab() {
   const router = useRouter();
-  const [openMatchday, setOpenMatchday] = useState<OpenMatchday | null>(null);
+  const [openMatchdays, setOpenMatchdays] = useState<OpenMatchday[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [now, setNow] = useState(() => new Date());
   const [isPaidUser, setIsPaidUser] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [ftGoals, setFtGoals] = useState('');
-  const [htGoals, setHtGoals] = useState('');
-  const [ftCorners, setFtCorners] = useState('');
-  const [htCorners, setHtCorners] = useState('');
-  const [isSavingPredictions, setIsSavingPredictions] = useState(false);
+  const [predictionInputs, setPredictionInputs] = useState<Record<string, PredictionInputs>>({});
+  const [isSavingPredictions, setIsSavingPredictions] = useState<Record<string, boolean>>({});
   const [teamNameMap, setTeamNameMap] = useState<Record<string, string>>({});
   const nowTs = now.getTime();
-
-  const getCompetitionIcon = (competition: CompetitionInfo | null | undefined) => {
-    const icon = competition?.icon?.trim();
-    return icon || '\u26BD';
-  };
 
   const getGameCompetition = (game: OpenMatchdayGame): CompetitionInfo | null => {
     const rel = game.competitions;
@@ -67,6 +76,7 @@ export default function DashboardTab() {
     }
     return 'TBD';
   };
+  const matchdayIdsKey = openMatchdays.map((matchday) => matchday.id).join('|');
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
@@ -80,18 +90,22 @@ export default function DashboardTab() {
       if (!isMounted) return;
       if (!user) {
         setIsPaidUser(false);
+        setSubscriptionStatus(null);
         setCurrentUserId(null);
         return;
       }
       setCurrentUserId(user.id);
       const { data: profile } = await supabase
         .from('profiles')
-        .select('account_type, stripe_subscription_id')
+        .select('account_type, stripe_subscription_id, subscription_status')
         .eq('id', user.id)
         .single();
       if (!isMounted) return;
-      const paid = profile?.account_type === 'paid' || Boolean(profile?.stripe_subscription_id);
+      const paid = profile?.account_type === 'paid'
+        || Boolean(profile?.stripe_subscription_id)
+        || profile?.subscription_status === 'active';
       setIsPaidUser(Boolean(paid));
+      setSubscriptionStatus(profile?.subscription_status ?? null);
     };
     fetchProfile();
     return () => {
@@ -100,20 +114,22 @@ export default function DashboardTab() {
   }, []);
 
   useEffect(() => {
-    if (!openMatchday?.games || openMatchday.games.length === 0) {
+    if (!openMatchdays.length) {
       setTeamNameMap({});
       return;
     }
     let isMounted = true;
     const fetchTeamNames = async () => {
       const ids = new Set<string>();
-      openMatchday.games?.forEach((game) => {
-        if (!game.home_team_rel?.name && game.home_team !== null && game.home_team !== undefined) {
-          ids.add(String(game.home_team));
-        }
-        if (!game.away_team_rel?.name && game.away_team !== null && game.away_team !== undefined) {
-          ids.add(String(game.away_team));
-        }
+      openMatchdays.forEach((matchday) => {
+        matchday.games?.forEach((game) => {
+          if (!game.home_team_rel?.name && game.home_team !== null && game.home_team !== undefined) {
+            ids.add(String(game.home_team));
+          }
+          if (!game.away_team_rel?.name && game.away_team !== null && game.away_team !== undefined) {
+            ids.add(String(game.away_team));
+          }
+        });
       });
 
       if (ids.size === 0) {
@@ -146,16 +162,17 @@ export default function DashboardTab() {
     return () => {
       isMounted = false;
     };
-  }, [openMatchday?.games]);
+  }, [openMatchdays]);
 
   useEffect(() => {
     let isMounted = true;
-    const fetchOpenMatchday = async () => {
+    const fetchOpenMatchdays = async () => {
       try {
         const { data, error } = await supabase
           .from('match_days')
           .select(`
-            id, name, match_date, cutoff_at,
+            id, name, match_date, cutoff_at, is_open,
+            seasons ( name ),
             games (
               id, kickoff_at,
               home_team, away_team,
@@ -164,18 +181,17 @@ export default function DashboardTab() {
               competitions ( name, short_name, icon )
             )
           `)
+          .eq('is_open', true)
           .gt('cutoff_at', new Date().toISOString())
-          .order('match_date', { ascending: true })
-          .limit(1)
-          .maybeSingle();
+          .order('match_date', { ascending: true });
 
         if (!isMounted) return;
         if (error) {
-          console.error('Error fetching open matchday:', error);
-          setOpenMatchday(null);
+          console.error('Error fetching open matchdays:', error);
+          setOpenMatchdays([]);
           return;
         }
-        setOpenMatchday((data as OpenMatchday) ?? null);
+        setOpenMatchdays((data as OpenMatchday[]) ?? []);
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -183,86 +199,142 @@ export default function DashboardTab() {
       }
     };
 
-    fetchOpenMatchday();
-    const interval = setInterval(fetchOpenMatchday, 60_000);
+    fetchOpenMatchdays();
+    const interval = setInterval(fetchOpenMatchdays, 60_000);
+    const channel = supabase
+      .channel('matchdays-dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'match_days' }, () => {
+        fetchOpenMatchdays();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => {
+        fetchOpenMatchdays();
+      })
+      .subscribe();
+
     return () => {
       isMounted = false;
       clearInterval(interval);
+      supabase.removeChannel(channel);
     };
   }, []);
 
   useEffect(() => {
-    if (!currentUserId || !openMatchday?.id) {
-      setFtGoals('');
-      setHtGoals('');
-      setFtCorners('');
-      setHtCorners('');
+    const matchdayIds = matchdayIdsKey ? matchdayIdsKey.split('|') : [];
+    if (!currentUserId || matchdayIds.length === 0) {
+      setPredictionInputs({});
       return;
     }
 
     let isMounted = true;
     const fetchExisting = async () => {
-      const { data: existing } = await supabase
+      let existingData: Array<Record<string, unknown>> | null = null;
+
+      const { data: primaryData, error: primaryError } = await supabase
         .from('predictions')
-        .select('*')
+        .select('match_day_id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
         .eq('user_id', currentUserId)
-        .eq('match_day_id', openMatchday.id)
-        .maybeSingle();
+        .in('match_day_id', matchdayIds);
+
+      if (primaryError) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('predictions')
+          .select('match_day_id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+          .eq('user_id', currentUserId)
+          .in('match_day_id', matchdayIds);
+
+        if (fallbackError) {
+          console.error('Predictions fetch error:', fallbackError);
+          toast.error('Failed to load predictions');
+          return;
+        }
+        existingData = (fallbackData as Array<Record<string, unknown>>) ?? [];
+      } else {
+        existingData = (primaryData as Array<Record<string, unknown>>) ?? [];
+      }
 
       if (!isMounted) return;
-      if (existing) {
-        setFtGoals(existing.predicted_total_goals !== null && existing.predicted_total_goals !== undefined
-          ? String(existing.predicted_total_goals)
-          : '');
-        setHtGoals(existing.predicted_ht_goals !== null && existing.predicted_ht_goals !== undefined
-          ? String(existing.predicted_ht_goals)
-          : '');
-        setFtCorners(existing.predicted_total_corners !== null && existing.predicted_total_corners !== undefined
-          ? String(existing.predicted_total_corners)
-          : '');
-        setHtCorners(existing.predicted_ht_corners !== null && existing.predicted_ht_corners !== undefined
-          ? String(existing.predicted_ht_corners)
-          : '');
-        return;
-      }
-      setFtGoals('');
-      setHtGoals('');
-      setFtCorners('');
-      setHtCorners('');
+
+      setPredictionInputs((prev) => {
+        const next: Record<string, PredictionInputs> = {};
+        matchdayIds.forEach((id) => {
+          next[id] = prev[id] ?? { ...defaultPredictionInputs };
+        });
+
+        (existingData || []).forEach((row) => {
+          const rowAny = row as Record<string, unknown>;
+          const htGoalsValue = rowAny.predicted_half_time_goals ?? rowAny.predicted_ht_goals;
+          const ftCornersValue = rowAny.predicted_ft_corners ?? rowAny.predicted_total_corners;
+          next[rowAny.match_day_id as string] = {
+            ftGoals: rowAny.predicted_total_goals !== null && rowAny.predicted_total_goals !== undefined
+              ? String(rowAny.predicted_total_goals)
+              : '',
+            htGoals: htGoalsValue !== null && htGoalsValue !== undefined
+              ? String(htGoalsValue)
+              : '',
+            ftCorners: ftCornersValue !== null && ftCornersValue !== undefined
+              ? String(ftCornersValue)
+              : '',
+            htCorners: rowAny.predicted_ht_corners !== null && rowAny.predicted_ht_corners !== undefined
+              ? String(rowAny.predicted_ht_corners)
+              : '',
+          };
+        });
+
+        return next;
+      });
     };
 
     fetchExisting();
     return () => {
       isMounted = false;
     };
-  }, [currentUserId, openMatchday?.id]);
+  }, [currentUserId, matchdayIdsKey]);
 
-  const handleSavePredictions = async () => {
-    if (!currentUserId || !openMatchday?.id) {
+  const handleSavePredictions = async (matchdayId: string) => {
+    if (!currentUserId || !matchdayId) {
       toast.error('Failed to save predictions');
       return;
     }
 
-    setIsSavingPredictions(true);
-    const { error } = await supabase
+    const inputs = predictionInputs[matchdayId] ?? defaultPredictionInputs;
+
+    setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: true }));
+    const basePayload = {
+      user_id: currentUserId,
+      match_day_id: matchdayId,
+      predicted_total_goals: inputs.ftGoals !== '' ? parseInt(inputs.ftGoals, 10) : null,
+      predicted_ht_corners: inputs.htCorners !== '' ? parseInt(inputs.htCorners, 10) : null,
+    };
+
+    const { error: primaryError } = await supabase
       .from('predictions')
       .upsert({
-        user_id: currentUserId,
-        match_day_id: openMatchday.id,
-        predicted_total_goals: ftGoals !== '' ? parseInt(ftGoals, 10) : null,
-        predicted_ht_goals: htGoals !== '' ? parseInt(htGoals, 10) : null,
-        predicted_total_corners: ftCorners !== '' ? parseInt(ftCorners, 10) : null,
-        predicted_ht_corners: htCorners !== '' ? parseInt(htCorners, 10) : null,
+        ...basePayload,
+        predicted_half_time_goals: inputs.htGoals !== '' ? parseInt(inputs.htGoals, 10) : null,
+        predicted_ft_corners: inputs.ftCorners !== '' ? parseInt(inputs.ftCorners, 10) : null,
       },
       { onConflict: 'user_id, match_day_id' });
 
-    setIsSavingPredictions(false);
+    if (primaryError) {
+      const { error: fallbackError } = await supabase
+        .from('predictions')
+        .upsert({
+          ...basePayload,
+          predicted_ht_goals: inputs.htGoals !== '' ? parseInt(inputs.htGoals, 10) : null,
+          predicted_total_corners: inputs.ftCorners !== '' ? parseInt(inputs.ftCorners, 10) : null,
+        },
+        { onConflict: 'user_id, match_day_id' });
 
-    if (error) {
-      toast.error('Failed to save predictions');
-      return;
+      if (fallbackError) {
+        console.error('Predictions save error:', fallbackError);
+        toast.error(fallbackError.message || 'Failed to save predictions');
+        setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: false }));
+        return;
+      }
     }
-    toast.success('Predictions saved! \u2705');
+
+    setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: false }));
+    toast.success(`Predictions saved! \u2705`);
   };
 
   const formatGameDateTime = (dateString: string | null | undefined) => {
@@ -284,17 +356,39 @@ export default function DashboardTab() {
     });
   };
 
-  const timeRemainingMs = openMatchday ? getUKTimestamp(openMatchday.cutoff_at) - nowTs : 0;
-  const remainingMinutes = openMatchday ? Math.max(0, Math.ceil(timeRemainingMs / 60000)) : 0;
-  const remainingHours = Math.floor(remainingMinutes / 60);
-  const remainingMins = remainingMinutes % 60;
-  const countdownLabel = openMatchday ? `Closes in ${remainingHours}h ${remainingMins}m` : '';
-  const isClosingHour = remainingMinutes > 0 && remainingMinutes <= 60;
-  const isClosingSoon = remainingMinutes > 0 && remainingMinutes <= 15;
-  const countdownColor = isClosingSoon ? '#ef4444' : isClosingHour ? '#f97316' : '#9ca3af';
+  const getMatchdayCountdown = (cutoffAt: string | null | undefined) => {
+    if (!cutoffAt) {
+      return {
+        countdownLabel: 'Closes soon',
+        countdownColor: '#9ca3af',
+        isClosingHour: false,
+        isClosingSoon: false,
+        isClosed: false,
+      };
+    }
 
-  const matchdayTitle = openMatchday?.name || 'GoalPrize MatchDay';
-  const matchdayGames = (openMatchday?.games ?? [])
+    const timeRemainingMs = getUKTimestamp(cutoffAt) - nowTs;
+    if (timeRemainingMs <= 0) {
+      return {
+        countdownLabel: 'Predictions Closed',
+        countdownColor: '#9ca3af',
+        isClosingHour: false,
+        isClosingSoon: false,
+        isClosed: true,
+      };
+    }
+    const remainingMinutes = Math.max(0, Math.ceil(timeRemainingMs / 60000));
+    const remainingHours = Math.floor(remainingMinutes / 60);
+    const remainingMins = remainingMinutes % 60;
+    const countdownLabel = `Closes in ${remainingHours}h ${remainingMins}m`;
+    const isClosingHour = remainingMinutes > 0 && remainingMinutes <= 60;
+    const isClosingSoon = remainingMinutes > 0 && remainingMinutes <= 15;
+    const countdownColor = isClosingSoon ? '#ef4444' : isClosingHour ? '#f97316' : '#9ca3af';
+
+    return { countdownLabel, countdownColor, isClosingHour, isClosingSoon, isClosed: false };
+  };
+
+  const getSortedMatchdayGames = (games?: OpenMatchdayGame[] | null) => (games ?? [])
     .slice()
     .sort((a, b) => {
       const aTime = a.kickoff_at ? new Date(a.kickoff_at).getTime() : 0;
@@ -302,50 +396,134 @@ export default function DashboardTab() {
       return aTime - bTime;
     });
 
-  const handleLockedClick = () => router.push('/paywall');
+  const handleLockedClick = () => router.push('/subscription');
+
+  const updatePredictionValue = (matchdayId: string, field: keyof PredictionInputs, value: string) => {
+    setPredictionInputs((prev) => ({
+      ...prev,
+      [matchdayId]: {
+        ...defaultPredictionInputs,
+        ...prev[matchdayId],
+        [field]: value,
+      },
+    }));
+  };
 
   const renderPredictionBox = (
     label: string,
     value: string,
     onChange: (next: string) => void,
     locked: boolean,
-    tierLabel?: string
-  ) => (
-    <Box
-      onClick={locked ? handleLockedClick : undefined}
-      sx={{
-        position: 'relative',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: '12px',
-        p: 2.25,
-        opacity: locked ? 0.4 : 1,
-        cursor: locked ? 'not-allowed' : 'text',
-      }}
-    >
-      <Typography sx={{ color: '#9ca3af', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        {label}
-      </Typography>
+    tierLabel?: string,
+    lockReason?: 'upgrade' | 'closed'
+  ) => {
+    if (locked) {
+      const isUpgrade = lockReason === 'upgrade';
+      return (
+        <Box
+          role={isUpgrade ? 'button' : undefined}
+          tabIndex={isUpgrade ? 0 : undefined}
+          onClick={isUpgrade ? handleLockedClick : undefined}
+          onKeyDown={isUpgrade ? (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              handleLockedClick();
+            }
+          } : undefined}
+          sx={{
+            position: 'relative',
+            backgroundColor: '#111',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: '12px',
+            p: 2.25,
+            overflow: 'hidden',
+            cursor: isUpgrade ? 'pointer' : 'default',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              inset: 0,
+              background: 'repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255,255,255,0.015) 6px, rgba(255,255,255,0.015) 12px)',
+              pointerEvents: 'none',
+            },
+          }}
+        >
+          <Box sx={{ position: 'relative', zIndex: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography sx={{ color: '#ffffff', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {label}
+              </Typography>
+              <Box
+                sx={{
+                  px: 1.1,
+                  py: 0.2,
+                  borderRadius: 999,
+                  background: isUpgrade ? 'rgba(251,191,36,0.2)' : 'rgba(107,114,128,0.2)',
+                  color: isUpgrade ? '#fbbf24' : '#9ca3af',
+                  fontSize: '0.6rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.08em',
+                }}
+              >
+                {isUpgrade ? 'PRO' : 'CLOSED'}
+              </Box>
+            </Box>
+
+            <Stack spacing={0.8} sx={{ mt: 1.4 }}>
+              <Box
+                sx={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: 'rgba(251,191,36,0.12)',
+                  border: '1px solid rgba(251,191,36,0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <LockIcon sx={{ fontSize: '1rem', color: '#fbbf24' }} />
+              </Box>
+              <Typography sx={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>
+                {isUpgrade ? 'Upgrade to predict' : 'Predictions closed'}
+              </Typography>
+              {isUpgrade && (
+                <Typography sx={{ fontSize: '10px', color: '#fbbf24', fontWeight: 600, cursor: 'pointer' }}>
+                  {`Unlock for \u00A35/mo \u2192`}
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+        </Box>
+      );
+    }
+
+    return (
       <Box
         sx={{
-          mt: 1.2,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: 56,
-          borderRadius: '10px',
-          background: locked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.12)',
-          border: locked ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(255,255,255,0.35)',
-          boxShadow: locked
-            ? 'inset 0 0 0 1px rgba(255,255,255,0.04)'
-            : 'inset 0 0 0 1px rgba(255,255,255,0.15), 0 8px 18px rgba(0,0,0,0.25)',
+          position: 'relative',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '12px',
+          p: 2.25,
+          cursor: 'text',
         }}
       >
-        {locked ? (
-          <Typography sx={{ fontSize: '1.8rem', fontWeight: 700, color: '#9ca3af', textAlign: 'center' }}>
-            \u2014
-          </Typography>
-        ) : (
+        <Typography sx={{ color: '#9ca3af', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {label}
+        </Typography>
+        <Box
+          sx={{
+            mt: 1.2,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            height: 56,
+            borderRadius: '10px',
+            background: 'rgba(255,255,255,0.12)',
+            border: '1px solid rgba(255,255,255,0.35)',
+            boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.15), 0 8px 18px rgba(0,0,0,0.25)',
+          }}
+        >
           <Box
             component="input"
             type="text"
@@ -375,196 +553,271 @@ export default function DashboardTab() {
               },
             }}
           />
+        </Box>
+        {tierLabel && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 10,
+              right: 10,
+              px: 1.2,
+              py: 0.2,
+              borderRadius: 999,
+              background: tierLabel === 'FREE' ? 'rgba(22,163,74,0.18)' : 'rgba(234,179,8,0.18)',
+              color: tierLabel === 'FREE' ? '#16a34a' : '#eab308',
+              fontSize: '0.65rem',
+              fontWeight: 800,
+              letterSpacing: '0.08em',
+            }}
+          >
+            {tierLabel}
+          </Box>
         )}
       </Box>
-      {tierLabel && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 10,
-            right: 10,
-            px: 1.2,
-            py: 0.2,
-            borderRadius: 999,
-            background: tierLabel === 'FREE' ? 'rgba(22,163,74,0.18)' : 'rgba(234,179,8,0.18)',
-            color: tierLabel === 'FREE' ? '#16a34a' : '#eab308',
-            fontSize: '0.65rem',
-            fontWeight: 800,
-            letterSpacing: '0.08em',
-          }}
-        >
-          {tierLabel}
-        </Box>
-      )}
-    </Box>
-  );
+    );
+  };
 
   if (isLoading) {
     return (
       <ModernLoader
-        label="Loading Matchday"
+        label="Loading Matchdays"
         sublabel="Preparing prediction inputs..."
         minHeight="60vh"
       />
     );
   }
 
+  const showUpgradeBanner = !isPaidUser && subscriptionStatus !== 'active';
+
   return (
     <Box>
-      {openMatchday ? (
-        <Card
-          sx={{
-            background: 'rgba(12, 14, 18, 0.96)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '16px',
-            boxShadow: '0 20px 50px rgba(0,0,0,0.35), 0 0 0 1px rgba(22,163,74,0.18) inset',
-            mb: 3,
-          }}
-        >
-          <CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
-            <Stack spacing={2.5}>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.18em' }}>
-                MATCHDAY OPEN
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-                <Box>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Box component="span" sx={{ fontSize: '1.2rem' }}>{`\u{1F310}`}</Box>
-                    <Typography sx={{ color: '#ffffff', fontWeight: 900, fontSize: '1.05rem' }}>
-                      {matchdayTitle}
-                    </Typography>
-                  </Stack>
-                  <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem', mt: 0.6 }}>
-                    {formatMatchdayDate(openMatchday.match_date)}
-                    <Box component="span" sx={{ color: '#6b7280', mx: 1 }}>
-                      {`\u00B7`}
-                    </Box>
-                    {matchdayGames.length} {matchdayGames.length === 1 ? 'game' : 'games'}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    px: 1.6,
-                    py: 0.6,
-                    borderRadius: 999,
-                    background: isClosingSoon
-                      ? 'rgba(239,68,68,0.2)'
-                      : isClosingHour
-                        ? 'rgba(249,115,22,0.2)'
-                        : 'rgba(107,114,128,0.2)',
-                    color: countdownColor,
-                    fontWeight: 800,
-                    fontSize: '0.75rem',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {countdownLabel}
-                </Box>
-              </Box>
+      {openMatchdays.length > 0 ? (
+        <Stack spacing={3} sx={{ mb: 3 }}>
+          {openMatchdays.map((matchday) => {
+            const matchdayTitle = matchday.name || 'GoalPrize MatchDay';
+            const seasonName = matchday.seasons?.name;
+            const matchdayGames = getSortedMatchdayGames(matchday.games);
+            const { countdownLabel, countdownColor, isClosingSoon, isClosingHour, isClosed } = getMatchdayCountdown(matchday.cutoff_at);
+            const inputs = predictionInputs[matchday.id] ?? defaultPredictionInputs;
+            const isSaving = Boolean(isSavingPredictions[matchday.id]);
+            const getLockReason = (field: keyof PredictionInputs) => {
+              if (isClosed) return 'closed' as const;
+              if (!isPaidUser && field !== 'ftGoals') return 'upgrade' as const;
+              return undefined;
+            };
+            const ftGoalsLock = getLockReason('ftGoals');
+            const htGoalsLock = getLockReason('htGoals');
+            const ftCornersLock = getLockReason('ftCorners');
+            const htCornersLock = getLockReason('htCorners');
 
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
-                {renderPredictionBox('FT Goals', ftGoals, setFtGoals, false, 'FREE')}
-                {renderPredictionBox('HT Goals', htGoals, setHtGoals, !isPaidUser, !isPaidUser ? 'PRO' : undefined)}
-                {renderPredictionBox('FT Corners', ftCorners, setFtCorners, !isPaidUser, !isPaidUser ? 'PRO' : undefined)}
-                {renderPredictionBox('HT Corners', htCorners, setHtCorners, !isPaidUser, !isPaidUser ? 'PRO' : undefined)}
-              </Box>
-
-              <Box>
-                <Typography sx={{ fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', mb: 1 }}>
-                  MATCHES IN THIS MATCHDAY
-                </Typography>
-                <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  {matchdayGames.length === 0 ? (
-                    <Typography sx={{ color: '#6b7280', fontSize: '0.85rem', py: 1.5 }}>
-                      No matches listed yet.
-                    </Typography>
-                  ) : (
-                    matchdayGames.map((game) => {
-                      const competition = getGameCompetition(game);
-                      const badgeLabel = competition?.short_name || competition?.name || '-';
-                      const kickoffLabel = formatGameDateTime(game.kickoff_at);
-                      return (
-                        <Box
-                          key={game.id}
-                          sx={{
-                            display: 'grid',
-                            gridTemplateColumns: { xs: '1fr', sm: '1.2fr 1.2fr 0.6fr 1fr' },
-                            alignItems: 'center',
-                            gap: 1,
-                            py: 1.1,
-                            borderBottom: '1px solid rgba(255,255,255,0.08)',
-                            transition: 'background-color 0.2s ease',
-                            '&:hover': { backgroundColor: 'rgba(255,255,255,0.02)' },
-                            '&:last-child': { borderBottom: 'none' },
-                          }}
-                        >
-                          <Typography sx={{ color: '#ffffff', fontSize: '0.95rem', fontWeight: 600 }}>
-                            {getTeamName(game.home_team, game.home_team_rel)}
-                          </Typography>
-                          <Typography sx={{ color: '#ffffff', fontSize: '0.95rem', fontWeight: 600 }}>
-                            {getTeamName(game.away_team, game.away_team_rel)}
-                          </Typography>
-                          <Box>
-                            {badgeLabel === '-' ? (
-                              <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', textAlign: { xs: 'left', sm: 'center' } }}>
-                                -
-                              </Typography>
-                            ) : (
-                              <Box
-                                sx={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 0.5,
-                                  background: 'rgba(255,255,255,0.08)',
-                                  border: '1px solid rgba(255,255,255,0.18)',
-                                  borderRadius: '999px',
-                                  px: 1,
-                                  py: '2px',
-                                  fontSize: '0.7rem',
-                                  color: '#ffffff',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: '0.02em',
-                                }}
-                              >
-                                <Box component="span" sx={{ fontSize: '0.85rem' }}>
-                                  {getCompetitionIcon(competition)}
-                                </Box>
-                                <Box component="span">
-                                  {badgeLabel}
-                                </Box>
-                              </Box>
-                            )}
-                          </Box>
-                          <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem', textAlign: { xs: 'left', sm: 'right' } }}>
-                            {kickoffLabel}
-                          </Typography>
-                        </Box>
-                      );
-                    })
-                  )}
-                </Box>
-              </Box>
-
-              <Button
-                fullWidth
-                onClick={handleSavePredictions}
-                disabled={isSavingPredictions}
+            return (
+              <Card
+                key={matchday.id}
                 sx={{
-                  background: '#16a34a',
-                  color: '#000',
-                  fontWeight: 800,
-                  fontSize: '1rem',
-                  py: 1.75,
-                  borderRadius: '10px',
-                  textTransform: 'none',
-                  '&:hover': { backgroundColor: '#15803d' },
+                  background: 'rgba(12, 14, 18, 0.96)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '16px',
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.35), 0 0 0 1px rgba(22,163,74,0.18) inset',
                 }}
               >
-                {`SAVE PREDICTIONS \u2192`}
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
+                <CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
+                  <Stack spacing={2.5}>
+                    <Box
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        px: 1.2,
+                        py: 0.4,
+                        borderRadius: 999,
+                        background: isClosed ? 'rgba(107,114,128,0.2)' : 'rgba(34,197,94,0.18)',
+                        color: isClosed ? '#9ca3af' : '#22c55e',
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.18em',
+                        textTransform: 'uppercase',
+                        width: 'fit-content',
+                      }}
+                    >
+                      {isClosed ? 'MATCHDAY CLOSED' : 'MATCHDAY OPEN'}
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+                      <Box>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Box component="span" sx={{ fontSize: '1.2rem' }}>{`\u{1F310}`}</Box>
+                          <Typography sx={{ color: '#ffffff', fontWeight: 900, fontSize: '1.05rem' }}>
+                            {matchdayTitle}
+                          </Typography>
+                        </Stack>
+                        <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem', mt: 0.6 }}>
+                          {seasonName && (
+                            <>
+                              {seasonName}
+                              <Box component="span" sx={{ color: '#6b7280', mx: 1 }}>
+                                {`\u00B7`}
+                              </Box>
+                            </>
+                          )}
+                          {formatMatchdayDate(matchday.match_date)}
+                          <Box component="span" sx={{ color: '#6b7280', mx: 1 }}>
+                            {`\u00B7`}
+                          </Box>
+                          {matchdayGames.length} {matchdayGames.length === 1 ? 'game' : 'games'}
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          px: 1.6,
+                          py: 0.6,
+                          borderRadius: 999,
+                          background: isClosed
+                            ? 'rgba(107,114,128,0.2)'
+                            : isClosingSoon
+                              ? 'rgba(239,68,68,0.2)'
+                              : isClosingHour
+                                ? 'rgba(249,115,22,0.2)'
+                                : 'rgba(107,114,128,0.2)',
+                          color: isClosed ? '#9ca3af' : countdownColor,
+                          fontWeight: 800,
+                          fontSize: '0.75rem',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {countdownLabel}
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' }, gap: 2 }}>
+                      {renderPredictionBox(
+                        'FT Goals',
+                        inputs.ftGoals,
+                        (next) => updatePredictionValue(matchday.id, 'ftGoals', next),
+                        Boolean(ftGoalsLock),
+                        'FREE',
+                        ftGoalsLock
+                      )}
+                      {renderPredictionBox(
+                        'HT Goals',
+                        inputs.htGoals,
+                        (next) => updatePredictionValue(matchday.id, 'htGoals', next),
+                        Boolean(htGoalsLock),
+                        !isPaidUser ? 'PRO' : undefined,
+                        htGoalsLock
+                      )}
+                      {renderPredictionBox(
+                        'FT Corners',
+                        inputs.ftCorners,
+                        (next) => updatePredictionValue(matchday.id, 'ftCorners', next),
+                        Boolean(ftCornersLock),
+                        !isPaidUser ? 'PRO' : undefined,
+                        ftCornersLock
+                      )}
+                      {renderPredictionBox(
+                        'HT Corners',
+                        inputs.htCorners,
+                        (next) => updatePredictionValue(matchday.id, 'htCorners', next),
+                        Boolean(htCornersLock),
+                        !isPaidUser ? 'PRO' : undefined,
+                        htCornersLock
+                      )}
+                    </Box>
+
+                    <Box>
+                      <Typography sx={{ fontSize: '0.7rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', mb: 1 }}>
+                        MATCHES IN THIS MATCHDAY
+                      </Typography>
+                      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                        {matchdayGames.length === 0 ? (
+                          <Typography sx={{ color: '#6b7280', fontSize: '0.85rem', py: 1.5 }}>
+                            No games added yet.
+                          </Typography>
+                        ) : (
+                          matchdayGames.map((game) => {
+                            const competition = getGameCompetition(game);
+                            const badgeLabel = competition?.name || competition?.short_name || '-';
+                            const kickoffLabel = formatGameDateTime(game.kickoff_at);
+                            return (
+                              <Box
+                                key={game.id}
+                                sx={{
+                                  display: 'grid',
+                                  gridTemplateColumns: { xs: '1fr', sm: '1.2fr 1.2fr 1fr 1fr' },
+                                  alignItems: 'center',
+                                  gap: 1,
+                                  py: 1.1,
+                                  borderBottom: '1px solid rgba(255,255,255,0.08)',
+                                  transition: 'background-color 0.2s ease',
+                                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.02)' },
+                                  '&:last-child': { borderBottom: 'none' },
+                                }}
+                              >
+                                <Typography sx={{ color: '#ffffff', fontSize: '0.95rem', fontWeight: 600 }}>
+                                  {getTeamName(game.home_team, game.home_team_rel)}
+                                </Typography>
+                                <Typography sx={{ color: '#ffffff', fontSize: '0.95rem', fontWeight: 600 }}>
+                                  {getTeamName(game.away_team, game.away_team_rel)}
+                                </Typography>
+                                <Box>
+                                  {badgeLabel === '-' ? (
+                                    <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', textAlign: { xs: 'left', sm: 'center' } }}>
+                                      -
+                                    </Typography>
+                                  ) : (
+                                    <Box
+                                      sx={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        background: 'rgba(255,255,255,0.08)',
+                                        border: '1px solid rgba(255,255,255,0.18)',
+                                        borderRadius: '999px',
+                                        px: 1,
+                                        py: '4px',
+                                        fontSize: '0.7rem',
+                                        color: '#ffffff',
+                                        textAlign: 'center',
+                                        lineHeight: 1.2,
+                                        letterSpacing: '0.01em',
+                                      }}
+                                    >
+                                      <Box component="span" sx={{ px: 0.5 }}>
+                                        {badgeLabel}
+                                      </Box>
+                                    </Box>
+                                  )}
+                                </Box>
+                                <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem', textAlign: { xs: 'left', sm: 'right' } }}>
+                                  {kickoffLabel}
+                                </Typography>
+                              </Box>
+                            );
+                          })
+                        )}
+                      </Box>
+                    </Box>
+
+                    <Button
+                      fullWidth
+                      onClick={() => handleSavePredictions(matchday.id)}
+                      disabled={isSaving || isClosed}
+                      sx={{
+                        background: isClosed ? '#374151' : 'linear-gradient(135deg, #16a34a, #22c55e)',
+                        color: isClosed ? '#e5e7eb' : '#000',
+                        fontWeight: 800,
+                        fontSize: '1rem',
+                        py: 1.75,
+                        borderRadius: '10px',
+                        textTransform: 'none',
+                        '&:hover': { backgroundColor: isClosed ? '#374151' : '#15803d' },
+                      }}
+                    >
+                      {isClosed ? 'PREDICTIONS CLOSED' : `SAVE PREDICTIONS \u2192`}
+                    </Button>
+                  </Stack>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Stack>
       ) : (
         <Card
           sx={{
@@ -576,82 +829,66 @@ export default function DashboardTab() {
           }}
         >
           <Typography sx={{ color: '#6b7280' }}>
-            No open matchday right now. Check back soon!
+            No open matchdays available right now. Check back soon.
           </Typography>
         </Card>
       )}
 
-      {!isPaidUser && (
+      {showUpgradeBanner && (
         <Box
           sx={{
-            background: 'linear-gradient(135deg, rgba(234,179,8,0.1), rgba(234,179,8,0.03))',
-            border: '1px solid rgba(234,179,8,0.3)',
+            background: 'rgba(251,191,36,0.08)',
+            border: '1px solid rgba(251,191,36,0.35)',
             borderRadius: '14px',
-            p: { xs: 3, md: '24px 28px' },
+            p: { xs: 2.5, md: 3 },
             mb: 3,
           }}
         >
-          <Typography sx={{ color: '#eab308', fontWeight: 900, fontSize: '1.1rem', mb: 1 }}>
-            {`\u{1F451} UNLOCK ALL 4 PREDICTION GAMES`}
+          <Typography sx={{ color: '#fbbf24', fontWeight: 800, fontSize: '14px', mb: 1 }}>
+            {`\u{1F451} Unlock All 4 Prediction Games`}
           </Typography>
-          <Stack spacing={1.25} sx={{ mb: 2 }}>
+          <Stack spacing={1.1} sx={{ mb: 1.5 }}>
             {[
-              { name: 'FT Goals', tier: 'free' },
-              { name: 'HT Goals', tier: 'pro' },
-              { name: 'Corners', tier: 'pro' },
-              { name: 'Cards', tier: 'pro' },
+              { name: 'FT Goals', pill: '✓ Free', type: 'free' },
+              { name: 'HT Goals', pill: '🔒 Pro', type: 'pro' },
+              { name: 'FT Corners', pill: '🔒 Pro', type: 'pro' },
+              { name: 'HT Corners', pill: '🔒 Pro', type: 'pro' },
             ].map((game) => (
               <Box key={game.name} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography sx={{ color: '#fff', fontWeight: 700 }}>{game.name}</Typography>
-                {game.tier === 'free' ? (
-                  <Box
-                    sx={{
-                      backgroundColor: 'rgba(22,163,74,0.15)',
-                      color: '#16a34a',
-                      borderRadius: 999,
-                      px: 1.5,
-                      py: 0.5,
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    {`\u2705 FREE`}
-                  </Box>
-                ) : (
-                  <Box
-                    sx={{
-                      backgroundColor: 'rgba(234,179,8,0.15)',
-                      color: '#eab308',
-                      borderRadius: 999,
-                      px: 1.5,
-                      py: 0.5,
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    {`\u{1F512} PRO`}
-                  </Box>
-                )}
+                <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>{game.name}</Typography>
+                <Box
+                  sx={{
+                    backgroundColor: game.type === 'free' ? 'rgba(22,163,74,0.2)' : 'rgba(251,191,36,0.2)',
+                    color: game.type === 'free' ? '#22c55e' : '#fbbf24',
+                    borderRadius: 999,
+                    px: 1.2,
+                    py: 0.4,
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                  }}
+                >
+                  {game.pill}
+                </Box>
               </Box>
             ))}
           </Stack>
-          <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', mb: 2 }}>
-            {`Upgrade for just \u00A35/month and earn 4x more points every matchday!`}
+          <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '12px', mb: 2 }}>
+            {`Upgrade for just \u00A35/month and earn 4x more points every matchday`}
           </Typography>
           <Button
             fullWidth
-            onClick={() => router.push('/paywall')}
+            onClick={() => router.push('/subscription')}
             sx={{
-              background: 'linear-gradient(135deg, #eab308, #d97706)',
-              color: '#000000',
-              fontWeight: 900,
-              fontSize: '1rem',
-              py: 1.75,
+              background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
+              color: '#0a0a0a',
+              fontWeight: 800,
+              fontSize: '0.95rem',
+              py: 1.5,
               borderRadius: '10px',
-              textTransform: 'none',
+              textTransform: 'uppercase',
             }}
           >
-            {`\u{1F451} UPGRADE NOW \u2014 \u00A35/MONTH \u2192`}
+            {`\u{1F451} Upgrade Now \u2014 \u00A35/Month \u2192`}
           </Button>
         </Box>
       )}
@@ -660,3 +897,5 @@ export default function DashboardTab() {
     </Box>
   );
 }
+
+

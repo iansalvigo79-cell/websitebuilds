@@ -1,4 +1,5 @@
 "use client";
+"use client";
 
 import { Box, Button, Container, TextField, Typography, Stack } from '@mui/material';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';

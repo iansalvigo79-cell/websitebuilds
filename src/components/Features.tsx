@@ -7,18 +7,21 @@ import {
   Grid,
   Card,
   CardContent,
+  CardActionArea,
 } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import StarIcon from '@mui/icons-material/Star';
+import Link from 'next/link';
 
 interface FeatureProps {
   title: string;
   description: string;
   icon: React.ReactNode;
+  href?: string;
 }
 
-function FeatureCard({ title, description, icon }: FeatureProps) {
+function FeatureCard({ title, description, icon, href }: FeatureProps) {
   return (
     <Card
       sx={{
@@ -28,6 +31,7 @@ function FeatureCard({ title, description, icon }: FeatureProps) {
         display: 'flex',
         flexDirection: 'column',
         transition: 'all 0.3s ease',
+        cursor: href ? 'pointer' : 'default',
         '&:hover': {
           borderColor: '#ffffff',
           boxShadow: '0 0 20px rgba(22, 163, 74, 0.12)',
@@ -35,34 +39,67 @@ function FeatureCard({ title, description, icon }: FeatureProps) {
         },
       }}
     >
-      <CardContent sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', p: { xs: 2, md: 3 } }}>
-        <Box sx={{ color: '#16a34a', mb: 2, fontSize: { xs: 32, md: 40 } }}>
-          {icon}
-        </Box>
-        <Typography
-          variant="h5"
-          sx={{
-            fontWeight: 700,
-            color: '#fff',
-            mb: 1.5,
-            textTransform: 'uppercase',
-            letterSpacing: 1,
-            fontSize: { xs: '1rem', md: '1.25rem' },
-          }}
-        >
-          {title}
-        </Typography>
-        <Typography
-          variant="body2"
-          sx={{
-            color: '#ffffff',
-            lineHeight: 1.6,
-            fontSize: { xs: '0.85rem', md: '0.95rem' },
-          }}
-        >
-          {description}
-        </Typography>
-      </CardContent>
+      {href ? (
+        <CardActionArea component={Link} href={href} sx={{ height: '100%' }}>
+          <CardContent sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', p: { xs: 2, md: 3 } }}>
+            <Box sx={{ color: '#16a34a', mb: 2, fontSize: { xs: 32, md: 40 } }}>
+              {icon}
+            </Box>
+            <Typography
+              variant="h5"
+              sx={{
+                fontWeight: 700,
+                color: '#fff',
+                mb: 1.5,
+                textTransform: 'uppercase',
+                letterSpacing: 1,
+                fontSize: { xs: '1rem', md: '1.25rem' },
+              }}
+            >
+              {title}
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{
+                color: '#ffffff',
+                lineHeight: 1.6,
+                fontSize: { xs: '0.85rem', md: '0.95rem' },
+              }}
+            >
+              {description}
+            </Typography>
+          </CardContent>
+        </CardActionArea>
+      ) : (
+        <CardContent sx={{ textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', p: { xs: 2, md: 3 } }}>
+          <Box sx={{ color: '#16a34a', mb: 2, fontSize: { xs: 32, md: 40 } }}>
+            {icon}
+          </Box>
+          <Typography
+            variant="h5"
+            sx={{
+              fontWeight: 700,
+              color: '#fff',
+              mb: 1.5,
+              textTransform: 'uppercase',
+              letterSpacing: 1,
+              fontSize: { xs: '1rem', md: '1.25rem' },
+            }}
+          >
+            {title}
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              color: '#ffffff',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.85rem', md: '0.95rem' },
+            }}
+          >
+            {description}
+          </Typography>
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -70,21 +107,22 @@ function FeatureCard({ title, description, icon }: FeatureProps) {
 export default function Features() {
   const features = [
     {
-      title: 'Predict Total Goals',
+      title: 'PLAY FOR FREE',
       description:
-        'Analyze the fixtures and predict the total number of goals scored across all games in a match day.',
+        'Analyse the fixtures and make your prediction for the total number of goals scored across all the games in a matchday.',
       icon: <TrendingUpIcon sx={{ fontSize: '2.5rem' }} />,
+      href: '/signup',
     },
     {
       title: 'Climb The Ranks',
       description:
-        'Earn points based on accuracy. The closer you get, the more points you get. The winner leaderboard.',
+        'Earn points based on prediction accuracy. The closer your prediction the more points you score. Can you be the greatest of all time!',
       icon: <LeaderboardIcon sx={{ fontSize: '2.5rem' }} />,
     },
     {
-      title: 'Pro Access',
+      title: 'SUBSCRIBE TO WIN PRIZES',
       description:
-        'Unlock advanced stats, history tracking, and exclusive features with our pro subscription.',
+        'Unlock more prediction games, exclusive features and your chance to win exciting prizes.',
       icon: <StarIcon sx={{ fontSize: '2.5rem' }} />,
     },
   ];
@@ -112,7 +150,7 @@ export default function Features() {
               textTransform: 'uppercase',
             }}
           >
-            Master The Game
+            THINK YOU KNOW FOOTBALL?!
           </Typography>
           <Typography
             variant="body1"
@@ -124,7 +162,7 @@ export default function Features() {
               lineHeight: 1.8,
             }}
           >
-            Simple rules, endless excitement. Can you predict the flow of the match day?
+            Simple to play, endless excitement. Can you predict the outcome of the next matchday?
           </Typography>
         </Box>
 

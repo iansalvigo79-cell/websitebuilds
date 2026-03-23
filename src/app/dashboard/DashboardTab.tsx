@@ -18,6 +18,7 @@ interface CompetitionInfo {
 
 interface OpenMatchdayGame {
   id: string;
+  match_day_id?: string | null;
   kickoff_at: string | null;
   home_team: string | number | null;
   away_team: string | number | null;
@@ -191,7 +192,49 @@ export default function DashboardTab() {
           setOpenMatchdays([]);
           return;
         }
-        setOpenMatchdays((data as OpenMatchday[]) ?? []);
+        const matchdays = (data as OpenMatchday[]) ?? [];
+        if (!matchdays.length) {
+          setOpenMatchdays([]);
+          return;
+        }
+
+        const matchdayIds = matchdays.map((md) => md.id);
+        const { data: gamesData, error: gamesError } = await supabase
+          .from('games')
+          .select(`
+            id, match_day_id, kickoff_at,
+            home_team, away_team,
+            home_team_rel:teams!games_home_team_fkey(name),
+            away_team_rel:teams!games_away_team_fkey(name),
+            competitions ( name, short_name, icon )
+          `)
+          .in('match_day_id', matchdayIds)
+          .order('kickoff_at', { ascending: true });
+
+        if (gamesError || !gamesData) {
+          console.warn('Error fetching matchday games:', gamesError);
+          setOpenMatchdays(matchdays);
+          return;
+        }
+
+        const gamesByMatchday = new Map<string, OpenMatchdayGame[]>();
+        (gamesData as OpenMatchdayGame[]).forEach((game) => {
+          const key = game.match_day_id ? String(game.match_day_id) : '';
+          if (!key) return;
+          const bucket = gamesByMatchday.get(key);
+          if (bucket) {
+            bucket.push(game);
+          } else {
+            gamesByMatchday.set(key, [game]);
+          }
+        });
+
+        setOpenMatchdays(
+          matchdays.map((md) => ({
+            ...md,
+            games: gamesByMatchday.get(md.id) ?? [],
+          }))
+        );
       } finally {
         if (isMounted) {
           setIsLoading(false);

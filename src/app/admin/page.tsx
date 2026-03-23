@@ -68,17 +68,22 @@ export default function AdminPage() {
   const [teamNameInput, setTeamNameInput] = useState('');
   const [bulkTeamsInput, setBulkTeamsInput] = useState('');
   const [teamSearchInput, setTeamSearchInput] = useState('');
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editingTeamName, setEditingTeamName] = useState('');
+  const [savingTeamId, setSavingTeamId] = useState<string | null>(null);
   const [createGameForm, setCreateGameForm] = useState({ matchDayId: '', competitionId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
   const [creatingGame, setCreatingGame] = useState(false);
   const [prizesList, setPrizesList] = useState<Prize[]>([]);
   const [prizesLoading, setPrizesLoading] = useState(false);
   const [prizeForm, setPrizeForm] = useState({
-    type: 'weekly' as 'weekly' | 'monthly' | 'seasonal',
+    type: 'weekly' as 'weekly' | 'monthly' | 'seasonal' | 'player',
     period: '',
+    points_threshold: '',
     winner_user_id: '',
     suggested_name: '',
     prize_description: '',
   });
+  const [playerCandidates, setPlayerCandidates] = useState<Array<{ user_id: string; display_name: string; total_points: number; exact_hits: number; reached_at: string | null }>>([]);
   const [suggestingWinner, setSuggestingWinner] = useState(false);
   const [suggestNoPredictionsMessage, setSuggestNoPredictionsMessage] = useState<string | null>(null);
   const [creatingPrize, setCreatingPrize] = useState(false);
@@ -1034,6 +1039,65 @@ export default function AdminPage() {
     }
   };
 
+  const handleStartEditTeam = (team: { id: string; name: string }) => {
+    setEditingTeamId(team.id);
+    setEditingTeamName(team.name);
+  };
+
+  const handleCancelEditTeam = () => {
+    setEditingTeamId(null);
+    setEditingTeamName('');
+  };
+
+  const handleSaveTeamName = async () => {
+    if (!editingTeamId) return;
+    const name = editingTeamName.trim();
+    if (!name) {
+      toast.error('Team name must not be empty');
+      return;
+    }
+    const normalized = name.toLowerCase();
+    const localDuplicate = teamsList.some((t) => t.id !== editingTeamId && t.name.trim().toLowerCase() === normalized);
+    if (localDuplicate) {
+      toast.error('A team with this name already exists');
+      return;
+    }
+    setSavingTeamId(editingTeamId);
+    try {
+      const { data: existing, error: existingError } = await supabase
+        .from('teams')
+        .select('id')
+        .ilike('name', name)
+        .neq('id', editingTeamId)
+        .limit(1);
+      if (existingError) {
+        console.warn('Team duplicate check failed:', existingError);
+      }
+      if (existing && existing.length > 0) {
+        toast.error('A team with this name already exists');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('teams')
+        .update({ name })
+        .eq('id', editingTeamId);
+      if (error) {
+        toast.error('Error updating team: ' + error.message);
+        return;
+      }
+      toast.success('Team name updated successfully');
+      setEditingTeamId(null);
+      setEditingTeamName('');
+      fetchTeamsList();
+    } catch (err) {
+      console.error('Unexpected Error (admin updateTeam):', err);
+      toast.error('An error occurred');
+    } finally {
+      setSavingTeamId(null);
+    }
+  };
+
   const handleSaveBlog = async () => {
     if (!blogForm.title || !blogForm.description || !blogForm.content || !blogForm.category || !blogForm.author) {
       toast.error('Please fill in all required fields');
@@ -1138,6 +1202,7 @@ export default function AdminPage() {
   const visibleMatchDays = matchDaySeasonId
     ? matchDaysList.filter((md) => md.season_id === matchDaySeasonId)
     : matchDaysList;
+  const isPlayerPrize = prizeForm.type === 'player';
   const filteredTeams = teamsList
     .filter((t) => t.name.toLowerCase().includes(teamSearchInput.trim().toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -2116,15 +2181,62 @@ export default function AdminPage() {
                   <TableBody>
                     {filteredTeams.map((team) => (
                       <TableRow key={team.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
-                        <TableCell>{team.name}</TableCell>
+                        <TableCell>
+                          {editingTeamId === team.id ? (
+                            <TextField
+                              size="small"
+                              value={editingTeamName}
+                              onChange={(e) => setEditingTeamName(e.target.value)}
+                              sx={{
+                                minWidth: 220,
+                                input: { color: '#fff' },
+                                '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' },
+                              }}
+                            />
+                          ) : (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography sx={{ color: '#e2e8f0', fontWeight: 600 }}>{team.name}</Typography>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleStartEditTeam(team)}
+                                sx={{ color: '#38bdf8' }}
+                                aria-label={`Edit ${team.name}`}
+                              >
+                                <EditIcon sx={{ fontSize: '1rem' }} />
+                              </IconButton>
+                            </Box>
+                          )}
+                        </TableCell>
                         <TableCell align="right">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleDeleteTeam(team.id)}
-                            sx={{ color: '#ef4444' }}
-                          >
-                            <DeleteIcon sx={{ fontSize: '1rem' }} />
-                          </IconButton>
+                          {editingTeamId === team.id ? (
+                            <Stack direction="row" spacing={1} justifyContent="flex-end">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                onClick={handleSaveTeamName}
+                                disabled={savingTeamId === team.id}
+                                sx={{ backgroundColor: '#16a34a', textTransform: 'none', fontWeight: 700, '&:hover': { backgroundColor: '#15803d' } }}
+                              >
+                                {savingTeamId === team.id ? 'Saving...' : 'Save'}
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={handleCancelEditTeam}
+                                sx={{ borderColor: 'rgba(148, 163, 184, 0.6)', color: '#cbd5e1', textTransform: 'none', fontWeight: 600 }}
+                              >
+                                Cancel
+                              </Button>
+                            </Stack>
+                          ) : (
+                            <IconButton
+                              size="small"
+                              onClick={() => handleDeleteTeam(team.id)}
+                              sx={{ color: '#ef4444' }}
+                            >
+                              <DeleteIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2328,7 +2440,7 @@ export default function AdminPage() {
                 Prize Competitions
               </Typography>
               <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>
-                Create, manage, and award prizes for weekly, monthly, and seasonal competitions.
+                Create, manage, and award prizes for weekly, monthly, seasonal, and player competitions.
               </Typography>
             </Box>
 
@@ -2358,7 +2470,16 @@ export default function AdminPage() {
                     value={prizeForm.type}
                     onChange={(e) => {
                       setSuggestNoPredictionsMessage(null);
-                      setPrizeForm((p) => ({ ...p, type: e.target.value as 'weekly' | 'monthly' | 'seasonal' }));
+                      setPlayerCandidates([]);
+                      const nextType = e.target.value as 'weekly' | 'monthly' | 'seasonal' | 'player';
+                      setPrizeForm((p) => ({
+                        ...p,
+                        type: nextType,
+                        period: nextType === 'player' ? '' : p.period,
+                        points_threshold: nextType === 'player' ? p.points_threshold : '',
+                        winner_user_id: '',
+                        suggested_name: '',
+                      }));
                     }}
                     SelectProps={{ native: true }}
                     sx={{ minWidth: 140, input: { color: '#fff' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiNativeSelect-select': { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, '& .MuiNativeSelect-select:focus': { backgroundColor: 'rgba(6, 182, 212, 0.2)' } }}
@@ -2366,20 +2487,37 @@ export default function AdminPage() {
                     <option value="weekly" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Weekly</option>
                     <option value="monthly" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Monthly</option>
                     <option value="seasonal" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Seasonal</option>
+                    <option value="player" style={{ backgroundColor: '#111827', color: '#e2e8f0' }}>Player</option>
                   </TextField>
-                  <TextField
-                    size="small"
-                    label={prizeForm.type === 'seasonal' ? 'Period (Season UUID)' : prizeForm.type === 'monthly' ? 'Period (YYYY-MM)' : 'Period (YYYY-Wnn)'}
-                    value={prizeForm.period}
-                    onChange={(e) => {
-                      setSuggestNoPredictionsMessage(null);
-                      setPrizeForm((p) => ({ ...p, period: e.target.value }));
-                    }}
-                    sx={{ minWidth: 200, input: { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' }, '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' } }}
-                  />
+                  {isPlayerPrize ? (
+                    <TextField
+                      size="small"
+                      label="Points Threshold"
+                      value={prizeForm.points_threshold}
+                      onChange={(e) => {
+                        setSuggestNoPredictionsMessage(null);
+                        setPlayerCandidates([]);
+                        setPrizeForm((p) => ({ ...p, points_threshold: e.target.value, winner_user_id: '', suggested_name: '' }));
+                      }}
+                      inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                      sx={{ minWidth: 200, input: { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' }, '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' } }}
+                    />
+                  ) : (
+                    <TextField
+                      size="small"
+                      label={prizeForm.type === 'seasonal' ? 'Period (Season UUID)' : prizeForm.type === 'monthly' ? 'Period (YYYY-MM)' : 'Period (YYYY-Wnn)'}
+                      value={prizeForm.period}
+                      onChange={(e) => {
+                        setSuggestNoPredictionsMessage(null);
+                        setPlayerCandidates([]);
+                        setPrizeForm((p) => ({ ...p, period: e.target.value, winner_user_id: '', suggested_name: '' }));
+                      }}
+                      sx={{ minWidth: 200, input: { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' }, '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' } }}
+                    />
+                  )}
                   <Button
                     variant="outlined"
-                    disabled={suggestingWinner || !prizeForm.period}
+                    disabled={suggestingWinner || (isPlayerPrize ? !prizeForm.points_threshold.trim() : !prizeForm.period.trim())}
                     onClick={async () => {
                       setSuggestingWinner(true);
                       setSuggestNoPredictionsMessage(null);
@@ -2389,24 +2527,49 @@ export default function AdminPage() {
                           toast.error('Please sign in again');
                           return;
                         }
-                        const res = await fetch(
-                          `/api/admin/suggested-winner?type=${encodeURIComponent(prizeForm.type)}&period=${encodeURIComponent(prizeForm.period.trim())}`,
-                          { headers: { Authorization: `Bearer ${token}` } }
-                        );
-                        const data = await res.json().catch(() => ({}));
-                        if (res.ok && data.suggested) {
-                          setSuggestNoPredictionsMessage(null);
-                          setPrizeForm((p) => ({
-                            ...p,
-                            winner_user_id: data.suggested.user_id,
-                            suggested_name: `${data.suggested.display_name} (${data.suggested.total_points} pts)`,
-                          }));
-                          toast.success('Top-ranked user suggested');
+                        if (isPlayerPrize) {
+                          const res = await fetch(
+                            `/api/admin/suggested-winner?type=player&threshold=${encodeURIComponent(prizeForm.points_threshold.trim())}`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                          );
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && Array.isArray(data.qualifiers)) {
+                            setPrizeForm((p) => ({ ...p, winner_user_id: '', suggested_name: '' }));
+                            setPlayerCandidates(data.qualifiers);
+                            if (data.qualifiers.length === 0) {
+                              const message = data.message || 'No paid players have reached this threshold yet.';
+                              setSuggestNoPredictionsMessage(message);
+                              toast.error(message);
+                            } else {
+                              toast.success(`Found ${data.qualifiers.length} qualifying players`);
+                            }
+                          } else {
+                            const message = data.message || data.error || 'Could not load qualifying players';
+                            setPlayerCandidates([]);
+                            setSuggestNoPredictionsMessage(message);
+                            toast.error(message);
+                          }
                         } else {
-                          const message = data.message || data.error || 'Could not get suggested winner';
-                          setPrizeForm((p) => ({ ...p, winner_user_id: '', suggested_name: '' }));
-                          setSuggestNoPredictionsMessage(message);
-                          toast.error(message);
+                          const res = await fetch(
+                            `/api/admin/suggested-winner?type=${encodeURIComponent(prizeForm.type)}&period=${encodeURIComponent(prizeForm.period.trim())}`,
+                            { headers: { Authorization: `Bearer ${token}` } }
+                          );
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && data.suggested) {
+                            setSuggestNoPredictionsMessage(null);
+                            setPlayerCandidates([]);
+                            setPrizeForm((p) => ({
+                              ...p,
+                              winner_user_id: data.suggested.user_id,
+                              suggested_name: `${data.suggested.display_name} (${data.suggested.total_points} pts)`,
+                            }));
+                            toast.success('Top-ranked user suggested');
+                          } else {
+                            const message = data.message || data.error || 'Could not get suggested winner';
+                            setPrizeForm((p) => ({ ...p, winner_user_id: '', suggested_name: '' }));
+                            setSuggestNoPredictionsMessage(message);
+                            toast.error(message);
+                          }
                         }
                       } finally {
                         setSuggestingWinner(false);
@@ -2429,6 +2592,64 @@ export default function AdminPage() {
                     {suggestNoPredictionsMessage}
                   </Typography>
                 )}
+                {isPlayerPrize && playerCandidates.length > 0 && (
+                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(6, 182, 212, 0.25)' }}>
+                    <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 1 }}>
+                      Qualifying Players
+                    </Typography>
+                    <TableContainer sx={{ maxHeight: 220, overflow: 'auto' }}>
+                      <Table size="small" sx={{ '& td, & th': { borderColor: 'rgba(100, 116, 139, 0.2)', color: '#e2e8f0' } }}>
+                        <TableHead>
+                          <TableRow>
+                            <TableCell sx={{ fontWeight: 700 }}>Player</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Total Points</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Exact Hits</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>Reached Threshold</TableCell>
+                            <TableCell align="right" sx={{ fontWeight: 700 }}>Action</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {playerCandidates.map((candidate) => {
+                            const reachedLabel = candidate.reached_at
+                              ? new Date(candidate.reached_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                              : '-';
+                            const selected = prizeForm.winner_user_id === candidate.user_id;
+                            return (
+                              <TableRow key={candidate.user_id}>
+                                <TableCell>{candidate.display_name}</TableCell>
+                                <TableCell>{candidate.total_points}</TableCell>
+                                <TableCell>{candidate.exact_hits}</TableCell>
+                                <TableCell>{reachedLabel}</TableCell>
+                                <TableCell align="right">
+                                  <Button
+                                    size="small"
+                                    variant={selected ? 'contained' : 'outlined'}
+                                    onClick={() => {
+                                      setPrizeForm((p) => ({
+                                        ...p,
+                                        winner_user_id: candidate.user_id,
+                                        suggested_name: `${candidate.display_name} (${candidate.total_points} pts)`,
+                                      }));
+                                    }}
+                                    sx={{
+                                      textTransform: 'none',
+                                      fontWeight: 700,
+                                      ...(selected
+                                        ? { backgroundColor: '#16a34a', color: '#fff', '&:hover': { backgroundColor: '#15803d' } }
+                                        : { borderColor: 'rgba(22, 163, 74, 0.6)', color: '#22c55e' }),
+                                    }}
+                                  >
+                                    {selected ? 'Selected' : 'Select'}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
+                )}
                 <TextField
                   size="small"
                   label="Prize Description"
@@ -2442,7 +2663,11 @@ export default function AdminPage() {
                 />
                 <Button
                   variant="contained"
-                  disabled={!prizeForm.winner_user_id || creatingPrize}
+                  disabled={
+                    creatingPrize
+                    || !prizeForm.winner_user_id
+                    || (isPlayerPrize ? !prizeForm.points_threshold.trim() : !prizeForm.period.trim())
+                  }
                   onClick={async () => {
                     setCreatingPrize(true);
                     try {
@@ -2451,12 +2676,27 @@ export default function AdminPage() {
                         toast.error('Please sign in again');
                         return;
                       }
+                      if (isPlayerPrize) {
+                        const threshold = parseInt(prizeForm.points_threshold.trim(), 10);
+                        if (!Number.isFinite(threshold) || threshold <= 0) {
+                          toast.error('Please enter a valid points threshold');
+                          return;
+                        }
+                      } else if (!prizeForm.period.trim()) {
+                        toast.error('Please enter a period');
+                        return;
+                      }
+                      if (!prizeForm.winner_user_id) {
+                        toast.error('Please select a winner');
+                        return;
+                      }
                       const res = await fetch('/api/admin/prizes', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                         body: JSON.stringify({
                           type: prizeForm.type,
-                          period: prizeForm.period,
+                          period: isPlayerPrize ? '' : prizeForm.period.trim(),
+                          points_threshold: isPlayerPrize ? prizeForm.points_threshold.trim() : undefined,
                           winner_user_id: prizeForm.winner_user_id,
                           prize_description: prizeForm.prize_description || null,
                         }),
@@ -2464,7 +2704,8 @@ export default function AdminPage() {
                       const data = await res.json().catch(() => ({}));
                       if (res.ok) {
                         toast.success('Prize created successfully');
-                        setPrizeForm({ type: 'weekly', period: '', winner_user_id: '', suggested_name: '', prize_description: '' });
+                        setPrizeForm({ type: 'weekly', period: '', points_threshold: '', winner_user_id: '', suggested_name: '', prize_description: '' });
+                        setPlayerCandidates([]);
                         fetchPrizesList();
                       } else {
                         toast.error(data.error || 'Failed to create prize');
@@ -2490,7 +2731,7 @@ export default function AdminPage() {
                     '&:disabled': { opacity: 0.6, transform: 'none' }
                   }}
                 >
-                  {creatingPrize ? 'Creating...' : 'Create Prize'}
+                  {creatingPrize ? 'Creating...' : (isPlayerPrize ? 'Confirm Winner' : 'Create Prize')}
                 </Button>
               </Stack>
             </Box>
@@ -2531,7 +2772,9 @@ export default function AdminPage() {
                               sx={{ backgroundColor: 'rgba(100, 116, 139, 0.3)', color: '#cbd5e1' }}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontWeight: 500 }}>{p.period}</TableCell>
+                          <TableCell sx={{ fontWeight: 500 }}>
+                            {p.type === 'player' ? `${p.period} pts threshold` : p.period}
+                          </TableCell>
                           <TableCell>{(p as Prize & { winner_display_name?: string | null }).winner_display_name || winnerNames[p.winner_user_id] || p.winner_user_id.slice(0, 8) + '...'}</TableCell>
                           <TableCell sx={{ maxWidth: 200, fontSize: '0.9rem' }}>{p.prize_description || ''}</TableCell>
                           <TableCell>

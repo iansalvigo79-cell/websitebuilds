@@ -100,6 +100,17 @@ async function getPeriodContext(
   type: string,
   period: string
 ): Promise<PeriodContext> {
+  if (type === 'player') {
+    const threshold = parseInt(period, 10);
+    const { data: mdRows } = await supabase
+      .from('match_days')
+      .select('id');
+    return {
+      matchDayIds: (mdRows || []).map((m: { id: string }) => m.id),
+      periodLabel: Number.isFinite(threshold) ? `Target ${threshold} pts` : 'Player Prize',
+      countdownTarget: null,
+    };
+  }
   if (type === 'seasonal') {
     const { data: seasonRaw } = await supabase
       .from('seasons')
@@ -177,7 +188,8 @@ async function getPeriodContext(
 async function getLeaderboardForMatchDays(
   supabase: any,
   matchDayIds: string[],
-  currentUserId: string
+  currentUserId: string,
+  paidOnly = false
 ): Promise<{
   entries: LeaderboardEntry[];
   participants: number;
@@ -197,17 +209,44 @@ async function getLeaderboardForMatchDays(
     };
   }
 
-  const { data: predictionsRows } = await supabase
+  let paidIds: string[] | null = null;
+  if (paidOnly) {
+    const { data: paidProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('subscription_status', 'active');
+    paidIds = (paidProfiles || []).map((p: { id: string }) => p.id);
+    if (paidIds.length === 0) {
+      return {
+        entries: [],
+        participants: 0,
+        leader: null,
+        currentUser: null,
+        gapToLeader: null,
+        progressToLeaderPct: null,
+      };
+    }
+  }
+
+  let predQuery = supabase
     .from('predictions')
-    .select('user_id, points')
+    .select('user_id, points, ht_goals_points, corners_points, ht_corners_points')
     .in('match_day_id', matchDayIds);
+  if (paidIds) {
+    predQuery = predQuery.in('user_id', paidIds);
+  }
+  const { data: predictionsRows } = await predQuery;
 
   const grouped: Record<string, { total_points: number; predictions_count: number }> = {};
-  (predictionsRows || []).forEach((row: { user_id: string; points: number | null }) => {
+  (predictionsRows || []).forEach((row: { user_id: string; points: number | null; ht_goals_points: number | null; corners_points: number | null; ht_corners_points: number | null }) => {
     if (!grouped[row.user_id]) {
       grouped[row.user_id] = { total_points: 0, predictions_count: 0 };
     }
-    grouped[row.user_id].total_points += row.points ?? 0;
+    grouped[row.user_id].total_points +=
+      (row.points ?? 0) +
+      (row.ht_goals_points ?? 0) +
+      (row.corners_points ?? 0) +
+      (row.ht_corners_points ?? 0);
     grouped[row.user_id].predictions_count += 1;
   });
 
@@ -375,7 +414,7 @@ export async function GET(request: Request) {
     if (existing) return existing;
     const promise = (async () => {
       const context = await getPeriodContextCached(type, period);
-      return getLeaderboardForMatchDays(supabase, context.matchDayIds, user.id);
+      return getLeaderboardForMatchDays(supabase, context.matchDayIds, user.id, true);
     })();
     leaderboardCache.set(key, promise);
     return promise;

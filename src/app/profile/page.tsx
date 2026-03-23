@@ -7,29 +7,18 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ModernLoader from '@/components/ui/ModernLoader';
+import { allCountries } from 'country-telephone-data';
 
-const COUNTRY_CODES = [
-  { code: '+1', label: 'United States (+1)' },
-  { code: '+44', label: 'United Kingdom (+44)' },
-  { code: '+353', label: 'Ireland (+353)' },
-  { code: '+61', label: 'Australia (+61)' },
-  { code: '+64', label: 'New Zealand (+64)' },
-  { code: '+27', label: 'South Africa (+27)' },
-  { code: '+234', label: 'Nigeria (+234)' },
-  { code: '+233', label: 'Ghana (+233)' },
-  { code: '+254', label: 'Kenya (+254)' },
-  { code: '+91', label: 'India (+91)' },
-  { code: '+92', label: 'Pakistan (+92)' },
-  { code: '+971', label: 'United Arab Emirates (+971)' },
-  { code: '+974', label: 'Qatar (+974)' },
-  { code: '+966', label: 'Saudi Arabia (+966)' },
-  { code: '+49', label: 'Germany (+49)' },
-  { code: '+33', label: 'France (+33)' },
-  { code: '+34', label: 'Spain (+34)' },
-  { code: '+39', label: 'Italy (+39)' },
-  { code: '+31', label: 'Netherlands (+31)' },
-  { code: '+46', label: 'Sweden (+46)' },
-];
+const COUNTRY_CODES = allCountries
+  .map((country: { name: string; iso2: string; dialCode: string }) => {
+    const dial = country.dialCode.startsWith('+') ? country.dialCode : `+${country.dialCode}`;
+    return {
+      code: dial,
+      iso2: country.iso2.toUpperCase(),
+      label: `${country.name} (${dial})`,
+    };
+  })
+  .sort((a, b) => a.label.localeCompare(b.label));
 
 const COUNTRY_CODES_BY_LENGTH = [...COUNTRY_CODES].sort((a, b) => b.code.length - a.code.length);
 
@@ -422,7 +411,7 @@ export default function ProfilePage() {
                 >
                   <MenuItem value="">Other</MenuItem>
                   {COUNTRY_CODES.map((entry) => (
-                    <MenuItem key={entry.code} value={entry.code}>
+                    <MenuItem key={`${entry.iso2}-${entry.code}`} value={entry.code}>
                       {entry.label}
                     </MenuItem>
                   ))}
@@ -476,6 +465,10 @@ export default function ProfilePage() {
     </Box>
   );
 }
+
+
+
+
 
 
 

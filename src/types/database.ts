@@ -120,7 +120,7 @@ export interface PrizeWinner {
 }
 
 /** Prize competition: admin creates after period ends, confirms winner, marks awarded when sent. */
-export type PrizeType = 'weekly' | 'monthly' | 'seasonal';
+export type PrizeType = 'weekly' | 'monthly' | 'seasonal' | 'player';
 export type PrizeStatus = 'pending' | 'awarded';
 
 export interface Prize {

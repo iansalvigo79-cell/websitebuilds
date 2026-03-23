@@ -100,6 +100,17 @@ async function getPeriodContext(
   type: string,
   period: string
 ): Promise<PeriodContext> {
+  if (type === 'player') {
+    const threshold = parseInt(period, 10);
+    const { data: mdRows } = await supabase
+      .from('match_days')
+      .select('id');
+    return {
+      matchDayIds: (mdRows || []).map((m: { id: string }) => m.id),
+      periodLabel: Number.isFinite(threshold) ? `Target ${threshold} pts` : 'Player Prize',
+      countdownTarget: null,
+    };
+  }
   if (type === 'seasonal') {
     const { data: seasonRaw } = await supabase
       .from('seasons')
@@ -177,7 +188,8 @@ async function getPeriodContext(
 async function getLeaderboardForMatchDays(
   supabase: any,
   matchDayIds: string[],
-  currentUserId: string
+  currentUserId: string,
+  paidOnly = false
 ): Promise<{
   entries: LeaderboardEntry[];
   participants: number;
@@ -197,17 +209,86 @@ async function getLeaderboardForMatchDays(
     };
   }
 
-  const { data: predictionsRows } = await supabase
-    .from('predictions')
-    .select('user_id, points')
-    .in('match_day_id', matchDayIds);
+  let paidIds: string[] | null = null;
+  if (paidOnly) {
+    const { data: paidProfiles } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('subscription_status', 'active');
+    const ids = (paidProfiles || []).map((p: { id: string }) => p.id);
+    if (ids.length === 0) {
+      return {
+        entries: [],
+        participants: 0,
+        leader: null,
+        currentUser: null,
+        gapToLeader: null,
+        progressToLeaderPct: null,
+      };
+    }
+    paidIds = ids;
+  }
+
+  const fetchPredictions = async () => {
+    let predQuery = supabase
+      .from('predictions')
+      .select('user_id, points, ht_goals_points, corners_points, ht_corners_points')
+      .in('match_day_id', matchDayIds);
+    if (paidIds) {
+      predQuery = predQuery.in('user_id', paidIds);
+    }
+    const { data, error } = await predQuery;
+    if (!error) return { data: data as any[], error: null };
+
+    const msg = (error as { message?: string }).message || '';
+    if (
+      (msg.includes('ht_goals_points') && msg.includes('does not exist')) ||
+      (msg.includes('corners_points') && msg.includes('does not exist')) ||
+      (msg.includes('ht_corners_points') && msg.includes('does not exist'))
+    ) {
+      let fallbackQuery = supabase
+        .from('predictions')
+        .select('user_id, points')
+        .in('match_day_id', matchDayIds);
+      if (paidIds) {
+        fallbackQuery = fallbackQuery.in('user_id', paidIds);
+      }
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      if (fallbackError) return { data: null, error: fallbackError };
+      const normalized = (fallbackData || []).map((row: any) => ({
+        ...row,
+        ht_goals_points: null,
+        corners_points: null,
+        ht_corners_points: null,
+      }));
+      return { data: normalized, error: null };
+    }
+
+    return { data: null, error };
+  };
+
+  const { data: predictionsRows, error: predictionsError } = await fetchPredictions();
+  if (predictionsError) {
+    return {
+      entries: [],
+      participants: 0,
+      leader: null,
+      currentUser: null,
+      gapToLeader: null,
+      progressToLeaderPct: null,
+    };
+  }
 
   const grouped: Record<string, { total_points: number; predictions_count: number }> = {};
-  (predictionsRows || []).forEach((row: { user_id: string; points: number | null }) => {
+  (predictionsRows || []).forEach((row: { user_id: string; points: number | null; ht_goals_points: number | null; corners_points: number | null; ht_corners_points: number | null }) => {
     if (!grouped[row.user_id]) {
       grouped[row.user_id] = { total_points: 0, predictions_count: 0 };
     }
-    grouped[row.user_id].total_points += row.points ?? 0;
+    grouped[row.user_id].total_points +=
+      (row.points ?? 0) +
+      (row.ht_goals_points ?? 0) +
+      (row.corners_points ?? 0) +
+      (row.ht_corners_points ?? 0);
     grouped[row.user_id].predictions_count += 1;
   });
 
@@ -375,7 +456,7 @@ export async function GET(request: Request) {
     if (existing) return existing;
     const promise = (async () => {
       const context = await getPeriodContextCached(type, period);
-      return getLeaderboardForMatchDays(supabase, context.matchDayIds, user.id);
+      return getLeaderboardForMatchDays(supabase, context.matchDayIds, user.id, true);
     })();
     leaderboardCache.set(key, promise);
     return promise;

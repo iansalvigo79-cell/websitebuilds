@@ -59,7 +59,9 @@ export default function PrizeWidget() {
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ mt: 0.7 }} alignItems="center">
                   <Chip label={activePrize.type} size="small" sx={{ bgcolor: 'rgba(22,163,74,0.2)', color: '#4ade80', textTransform: 'capitalize' }} />
-                  <Typography sx={{ color: '#9ca3af', fontSize: '0.84rem' }}>{activePrize.period}</Typography>
+                  <Typography sx={{ color: '#9ca3af', fontSize: '0.84rem' }}>
+                    {activePrize.type === 'player' ? `Target ${activePrize.period} pts` : activePrize.period}
+                  </Typography>
                 </Stack>
                 <Typography sx={{ color: '#d1d5db', mt: 0.7 }}>{activePrize.prize_description || 'Monthly Reward'}</Typography>
               </Box>

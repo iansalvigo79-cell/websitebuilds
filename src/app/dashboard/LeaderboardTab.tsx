@@ -2,6 +2,7 @@
 
 import {
   Box,
+  Button,
   Typography,
   Table,
   TableBody,
@@ -16,7 +17,7 @@ import {
   MenuItem,
   Tooltip,
 } from '@mui/material';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -25,8 +26,17 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import { getMatchDayStatus } from '@/lib/predictionRules';
 import { calculatePoints } from '@/lib/pointsCalculator';
 import ModernLoader from '@/components/ui/ModernLoader';
+import { useRouter } from 'next/navigation';
 
 export type LeaderboardPeriod = 'seasonal' | 'weekly' | 'monthly' | 'matchday';
+export type LeaderboardGameType = 'ft_goals' | 'ht_goals' | 'ft_corners' | 'ht_corners';
+
+const GAME_TYPE_OPTIONS: Array<{ value: LeaderboardGameType; label: string; proOnly: boolean }> = [
+  { value: 'ft_goals', label: 'FT Goals', proOnly: false },
+  { value: 'ht_goals', label: 'HT Goals', proOnly: true },
+  { value: 'ft_corners', label: 'FT Corners', proOnly: true },
+  { value: 'ht_corners', label: 'HT Corners', proOnly: true },
+];
 
 export interface LeaderboardEntry {
   user_id: string;
@@ -147,7 +157,29 @@ function getAccuracyTag(diff: number): { label: string; color: string } {
   return { label: '±4+', color: '#991b1b' };
 }
 
+function getPointsForType(pred: any, type: LeaderboardGameType): number {
+  if (type === 'ht_goals') return pred.ht_goals_points ?? 0;
+  if (type === 'ft_corners') return pred.corners_points ?? 0;
+  if (type === 'ht_corners') return pred.ht_corners_points ?? 0;
+  return pred.points ?? 0;
+}
+
+function getPredictionForType(pred: any, type: LeaderboardGameType): number | null {
+  if (type === 'ht_goals') return pred.predicted_half_time_goals ?? pred.predicted_ht_goals ?? null;
+  if (type === 'ft_corners') return pred.predicted_ft_corners ?? pred.predicted_total_corners ?? null;
+  if (type === 'ht_corners') return pred.predicted_ht_corners ?? null;
+  return pred.predicted_total_goals ?? null;
+}
+
+function getActualForType(matchday: any, type: LeaderboardGameType): number | null {
+  if (type === 'ht_goals') return matchday?.ht_goals ?? null;
+  if (type === 'ft_corners') return matchday?.total_corners ?? null;
+  if (type === 'ht_corners') return matchday?.ht_corners ?? null;
+  return matchday?.actual_total_goals ?? null;
+}
+
 export default function LeaderboardTab() {
+  const router = useRouter();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [seasonName, setSeasonName] = useState('');
@@ -156,13 +188,16 @@ export default function LeaderboardTab() {
   const [seasonOptions, setSeasonOptions] = useState<Array<{ id: string; name: string; is_active: boolean }>>([]);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null);
   const [period, setPeriod] = useState<LeaderboardPeriod>('seasonal');
+  const [gameType, setGameType] = useState<LeaderboardGameType>('ft_goals');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isPaidUser, setIsPaidUser] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [matchDays, setMatchDays] = useState<MatchDayOption[]>([]);
   const [selectedMatchDayId, setSelectedMatchDayId] = useState<string | null>(null);
   const [matchdayLeaderboard, setMatchdayLeaderboard] = useState<Array<{
     user_id: string;
     display_name: string;
-    predicted: number;
+    predicted: number | null;
     points: number;
     ftPoints: number;
     htPoints: number;
@@ -175,13 +210,23 @@ export default function LeaderboardTab() {
   const [matchdayDetail, setMatchdayDetail] = useState<{
     match_date: string;
     leagueName: string;
-    actual: number;
+    matchdayName: string | null;
+    actual: number | null;
     htGoals: number | null;
     totalCorners: number | null;
     htCorners: number | null;
     games: { home: string; away: string; score: string }[];
   } | null>(null);
   const [matchdayLoading, setMatchdayLoading] = useState(false);
+
+  const activeGameType = useMemo<LeaderboardGameType>(
+    () => (isPaidUser ? gameType : 'ft_goals'),
+    [isPaidUser, gameType]
+  );
+  const activeGameTypeLabel = useMemo(
+    () => GAME_TYPE_OPTIONS.find((option) => option.value === activeGameType)?.label ?? 'FT Goals',
+    [activeGameType]
+  );
 
   const fetchLeaderboard = useCallback(async () => {
     if (period === 'matchday') return;
@@ -214,9 +259,7 @@ export default function LeaderboardTab() {
       const profileMap = userIds.length ? await fetchProfileMap(userIds) : new Map<string, ProfileDisplay>();
 
       const rawData = predictionsRows.map((p: any) => ({
-        user_id: p.user_id,
-        points: p.points,
-        match_day_id: p.match_day_id,
+        ...p,
         match_days: mdMap.get(p.match_day_id) || null,
       }));
 
@@ -232,11 +275,9 @@ export default function LeaderboardTab() {
       const grouped: Record<string, { display_name: string; total_points: number; predictions_count: number; exact_count: number }> = {};
       filtered.forEach((pred: any) => {
         const userId = pred.user_id;
-        const pointsVal =
-          (pred.points ?? 0) +
-          (pred.ht_goals_points ?? 0) +
-          (pred.corners_points ?? 0) +
-          (pred.ht_corners_points ?? 0);
+        const pointsVal = getPointsForType(pred, activeGameType);
+        const predictedVal = getPredictionForType(pred, activeGameType);
+        const hasPrediction = predictedVal != null || pointsVal > 0;
         if (!grouped[userId]) {
           const profileData = profileMap.get(userId);
           grouped[userId] = {
@@ -247,8 +288,8 @@ export default function LeaderboardTab() {
           };
         }
         grouped[userId].total_points += pointsVal;
-        grouped[userId].predictions_count += 1;
-        if (pred.points === 10) grouped[userId].exact_count += 1;
+        if (hasPrediction) grouped[userId].predictions_count += 1;
+        if (pointsVal === 10 && predictedVal != null) grouped[userId].exact_count += 1;
       });
 
       const arr: LeaderboardEntry[] = Object.entries(grouped).map(([user_id, data]) => ({
@@ -267,7 +308,7 @@ export default function LeaderboardTab() {
     } finally {
       setIsLoading(false);
     }
-  }, [period, selectedSeasonId, activeSeasonId]);
+  }, [period, selectedSeasonId, activeSeasonId, activeGameType]);
 
   useEffect(() => {
     fetchLeaderboard();
@@ -307,11 +348,36 @@ export default function LeaderboardTab() {
   }, [period, selectedSeasonId, seasonOptions, activeSeasonName]);
 
   useEffect(() => {
+    let mounted = true;
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!mounted) return;
       setCurrentUserId(user?.id ?? null);
+      if (!user) {
+        setIsPaidUser(false);
+        setSubscriptionStatus(null);
+        return;
+      }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('subscription_status')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (!mounted) return;
+      const active = profile?.subscription_status === 'active';
+      setIsPaidUser(active);
+      setSubscriptionStatus(profile?.subscription_status ?? null);
     })();
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isPaidUser && gameType !== 'ft_goals') {
+      setGameType('ft_goals');
+    }
+  }, [isPaidUser, gameType]);
 
   useEffect(() => {
     if (period === 'matchday' && !activeSeasonId) {
@@ -387,6 +453,7 @@ export default function LeaderboardTab() {
         const totalCorners = mdAny.total_corners ?? null;
         const htCorners = mdAny.ht_corners ?? null;
         const leagueName = mdAny.seasons?.name || 'League';
+        const matchdayName = mdAny.name ?? null;
 
         const { data: games } = await supabase
           .from('games')
@@ -409,14 +476,15 @@ export default function LeaderboardTab() {
           }));
         }
 
-        if (actual == null) {
-          setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual: 0, htGoals, totalCorners, htCorners, games: gameRows });
+        const selectedActual = getActualForType(mdAny, activeGameType);
+        if (selectedActual == null) {
+          setMatchdayDetail({ match_date: mdAny.match_date, leagueName, matchdayName, actual: mdAny.actual_total_goals ?? null, htGoals, totalCorners, htCorners, games: gameRows });
           setMatchdayLeaderboard([]);
           setMatchdayLoading(false);
           return;
         }
 
-        setMatchdayDetail({ match_date: mdAny.match_date, leagueName, actual, htGoals, totalCorners, htCorners, games: gameRows });
+        setMatchdayDetail({ match_date: mdAny.match_date, leagueName, matchdayName, actual, htGoals, totalCorners, htCorners, games: gameRows });
 
         const { data: preds, error: predErr } = await supabase
           .from('predictions')
@@ -449,20 +517,37 @@ export default function LeaderboardTab() {
           const htPoints = htGoals != null ? computePoints(p.predicted_half_time_goals, htGoals, p.ht_goals_points) : 0;
           const cornersPoints = totalCorners != null ? computePoints(p.predicted_ft_corners, totalCorners, p.corners_points) : 0;
           const htCornersPoints = htCorners != null ? computePoints(p.predicted_ht_corners, htCorners, p.ht_corners_points) : 0;
-          const totalPoints = ftPoints + htPoints + cornersPoints + htCornersPoints;
+          const selectedPredicted = getPredictionForType(p, activeGameType);
+          const selectedStoredPoints = getPointsForType(p, activeGameType);
+          const hasPrediction = selectedPredicted != null || selectedStoredPoints > 0;
+          if (!hasPrediction) return null;
+          const selectedPoints = computePoints(selectedPredicted, selectedActual, selectedStoredPoints);
+          const totalPoints = selectedPoints;
+          const diff = selectedPredicted != null ? Math.abs((selectedPredicted || 0) - selectedActual) : 0;
           return {
             user_id: p.user_id,
             display_name: resolveDisplayName(profileData),
-            predicted: p.predicted_total_goals,
-            points: totalPoints,
+            predicted: selectedPredicted,
+            points: selectedPoints,
             ftPoints,
             htPoints,
             cornersPoints,
             htCornersPoints,
             totalPoints,
-            diff: Math.abs((p.predicted_total_goals || 0) - actual),
+            diff,
           };
-        });
+        }).filter(Boolean) as Array<{
+          user_id: string;
+          display_name: string;
+          predicted: number | null;
+          points: number;
+          ftPoints: number;
+          htPoints: number;
+          cornersPoints: number;
+          htCornersPoints: number;
+          totalPoints: number;
+          diff: number;
+        }>;
         withDiff.sort((a, b) => b.totalPoints - a.totalPoints);
         const ranked = withDiff.map((r, i) => ({ ...r, rank: i + 1 }));
         setMatchdayLeaderboard(ranked);
@@ -470,14 +555,24 @@ export default function LeaderboardTab() {
         setMatchdayLoading(false);
       }
     })();
-  }, [period, selectedMatchDayId]);
+  }, [period, selectedMatchDayId, activeGameType]);
 
   const selectedMd = matchDays.find((m) => m.id === selectedMatchDayId);
+  const selectedMdIndex = selectedMd ? matchDays.findIndex((m) => m.id === selectedMd.id) : -1;
+  const selectedMdNumber = selectedMdIndex >= 0 ? selectedMdIndex + 1 : null;
   const liveCount = matchDays.filter((m) => m.status === 'live').length;
   const doneCount = matchDays.filter((m) => m.status === 'completed').length;
   const upcomingCount = matchDays.filter((m) => m.status === 'upcoming').length;
   const myEntry = currentUserId ? leaderboard.find((e) => e.user_id === currentUserId) : null;
   const myMatchdayEntry = currentUserId ? matchdayLeaderboard.find((e) => e.user_id === currentUserId) : null;
+  const matchdayActualValue = useMemo(() => {
+    if (!matchdayDetail) return null;
+    if (activeGameType === 'ht_goals') return matchdayDetail.htGoals ?? null;
+    if (activeGameType === 'ft_corners') return matchdayDetail.totalCorners ?? null;
+    if (activeGameType === 'ht_corners') return matchdayDetail.htCorners ?? null;
+    return matchdayDetail.actual ?? null;
+  }, [activeGameType, matchdayDetail]);
+  const matchdayScoresReady = matchdayActualValue != null;
 
   const tableSx = {
     '& td, & th': { borderColor: 'rgba(255,255,255,0.12)', color: '#e5e7eb' },
@@ -503,6 +598,65 @@ export default function LeaderboardTab() {
           </Box>
         )}
       </Box>
+
+      <Tabs
+        value={activeGameType}
+        onChange={(_, v: LeaderboardGameType) => {
+          if (!v) return;
+          if (!isPaidUser && v !== 'ft_goals') return;
+          setGameType(v);
+        }}
+        sx={{
+          mb: 2,
+          '& .MuiTab-root': { color: '#9ca3af', textTransform: 'uppercase', fontWeight: 700, fontSize: '0.78rem' },
+          '& .Mui-selected': { color: '#22c55e' },
+          '& .MuiTabs-indicator': { backgroundColor: '#22c55e' },
+        }}
+      >
+        {GAME_TYPE_OPTIONS.map((option) => {
+          const locked = option.proOnly && !isPaidUser;
+          const label = (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+              {option.label}
+              {locked && <LockIcon sx={{ fontSize: '0.9rem', opacity: 0.75 }} />}
+            </Box>
+          );
+          return (
+            <Tab
+              key={option.value}
+              value={option.value}
+              label={label}
+              disabled={locked}
+            />
+          );
+        })}
+      </Tabs>
+
+      {!isPaidUser && (
+        <Box sx={{ mb: 2, p: 2, borderRadius: 2, border: '1px solid rgba(251,191,36,0.4)', backgroundColor: 'rgba(251,191,36,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+          <Box>
+            <Typography sx={{ color: '#fbbf24', fontWeight: 800, fontSize: '0.85rem' }}>
+              Upgrade to unlock HT Goals, FT Corners, and HT Corners leaderboards.
+            </Typography>
+            <Typography sx={{ color: '#fde68a', fontSize: '0.75rem' }}>
+              Your account is currently {subscriptionStatus || 'free'}.
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            onClick={() => router.push('/subscription')}
+            sx={{
+              background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
+              color: '#0f172a',
+              fontWeight: 800,
+              textTransform: 'none',
+              px: 2,
+            }}
+          >
+            Upgrade
+          </Button>
+        </Box>
+      )}
 
       <Tabs
         value={period}
@@ -642,16 +796,21 @@ export default function LeaderboardTab() {
             <Box sx={{ mb: 4 }}>
               <Box sx={{ backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 2, p: 2, mb: 3, border: '1px solid rgba(255,255,255,0.08)' }}>
                 <Box sx={{ color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
-                  <span>Matchday {matchDays.findIndex((m) => m.id === selectedMatchDayId) + 1}</span>
+                  <span>
+                    {selectedMdNumber ? `Matchday ${selectedMdNumber}` : 'Matchday'}
+                    {(selectedMd?.name || matchdayDetail.matchdayName) ? ` — ${selectedMd?.name || matchdayDetail.matchdayName}` : ''}
+                  </span>
                   <Chip label="COMPLETED" size="small" sx={{ backgroundColor: 'rgba(22,163,74,0.25)', color: '#16a34a', fontWeight: 700 }} />
                 </Box>
                 <Typography sx={{ color: '#9ca3af', fontSize: '0.9rem' }} component="div">
                   {matchdayDetail.leagueName} {new Date(matchdayDetail.match_date).toLocaleDateString()}
                 </Typography>
-                {matchdayDetail.games.slice(0, 3).map((g, i) => (
+                {matchdayDetail.games.map((g, i) => (
                   <Typography key={i} sx={{ color: '#6b7280', fontSize: '0.85rem' }}>{g.home} {g.score} {g.away}</Typography>
                 ))}
-                <Typography sx={{ color: '#60a5fa', fontWeight: 700, mt: 1 }}>{matchdayDetail.actual} FT GOALS</Typography>
+                <Typography sx={{ color: '#60a5fa', fontWeight: 700, mt: 1 }}>
+                  {matchdayActualValue != null ? `${matchdayActualValue} ${activeGameTypeLabel.toUpperCase()}` : `${activeGameTypeLabel.toUpperCase()} SCORES PENDING`}
+                </Typography>
               </Box>
 
               <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
@@ -660,8 +819,8 @@ export default function LeaderboardTab() {
                     <TableRow>
                       <TableCell sx={{ fontWeight: 700 }}>Rank</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>Player</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Predicted</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700 }}>Points</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Predicted ({activeGameTypeLabel})</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>Points ({activeGameTypeLabel})</TableCell>
                       <TableCell align="right" sx={{ fontWeight: 700 }}>Accuracy</TableCell>
                     </TableRow>
                   </TableHead>
@@ -684,12 +843,9 @@ export default function LeaderboardTab() {
                               <Typography sx={{ color: '#fff', fontWeight: 600 }}>{row.display_name}</Typography>
                             </Box>
                           </TableCell>
-                          <TableCell sx={{ color: '#9ca3af' }}>{row.predicted}</TableCell>
+                          <TableCell sx={{ color: '#9ca3af' }}>{row.predicted ?? '-'}</TableCell>
                           <TableCell align="right">
-                            <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>{row.totalPoints} pts</Typography>
-                            <Typography sx={{ color: '#6b7280', fontSize: '0.7rem' }}>
-                              FT {row.ftPoints} · HT {row.htPoints} · COR {row.cornersPoints} · HTC {row.htCornersPoints}
-                            </Typography>
+                            <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>{row.points} pts</Typography>
                           </TableCell>
                           <TableCell align="right">
                             <Chip
@@ -717,19 +873,20 @@ export default function LeaderboardTab() {
                       <Typography sx={{ color: '#fff' }}>{myMatchdayEntry.display_name} (you)</Typography>
                     </Box>
                     <Typography sx={{ color: '#60a5fa', fontWeight: 700 }}>
-                      Predicted {myMatchdayEntry.predicted} · Actual {matchdayDetail.actual} · {myMatchdayEntry.totalPoints} pts · {getAccuracyTag(myMatchdayEntry.diff).label}
+                      Predicted {myMatchdayEntry.predicted ?? '-'} · Actual {matchdayActualValue ?? '-'} · {myMatchdayEntry.points} pts · {getAccuracyTag(myMatchdayEntry.diff).label}
                     </Typography>
                   </Box>
                   <Box sx={{ mt: 1, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 0.5 }}>
-                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>FT Goals: {myMatchdayEntry.ftPoints} pts</Typography>
-                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>HT Goals: {myMatchdayEntry.htPoints} pts</Typography>
-                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Corners: {myMatchdayEntry.cornersPoints} pts</Typography>
-                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>HT Corners: {myMatchdayEntry.htCornersPoints} pts</Typography>
-                    <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.85rem' }}>Total: {myMatchdayEntry.totalPoints} pts</Typography>
+                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Game Type: {activeGameTypeLabel}</Typography>
+                    <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>Points: {myMatchdayEntry.points} pts</Typography>
                   </Box>
                 </Box>
               )}
             </Box>
+          ) : period === 'matchday' && selectedMd?.status === 'completed' && !matchdayScoresReady ? (
+            <Typography sx={{ color: '#9ca3af', textAlign: 'center', py: 4 }}>
+              {activeGameTypeLabel} scores are not available for this matchday yet.
+            </Typography>
           ) : period === 'matchday' && selectedMd?.status === 'completed' ? (
             <Typography sx={{ color: '#9ca3af', textAlign: 'center', py: 4 }}>No predictions for this matchday yet.</Typography>
           ) : null}

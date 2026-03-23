@@ -55,26 +55,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
   }
 
-  let body: { type?: string; period?: string; winner_user_id?: string; prize_description?: string };
+  let body: { type?: string; period?: string; winner_user_id?: string; prize_description?: string; points_threshold?: string | number };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const type = body.type;
-  const period = body.period;
+  const type = body.type?.trim();
+  let period = body.period?.trim();
   const winner_user_id = body.winner_user_id;
   const prize_description = body.prize_description ?? null;
 
-  if (!type || !period || !winner_user_id) {
+  if (!type || !winner_user_id) {
     return NextResponse.json(
-      { error: 'Missing required fields: type, period, winner_user_id' },
+      { error: 'Missing required fields: type, winner_user_id' },
       { status: 400 }
     );
   }
-  if (!['weekly', 'monthly', 'seasonal'].includes(type)) {
-    return NextResponse.json({ error: 'type must be weekly, monthly, or seasonal' }, { status: 400 });
+  if (!['weekly', 'monthly', 'seasonal', 'player'].includes(type)) {
+    return NextResponse.json({ error: 'type must be weekly, monthly, seasonal, or player' }, { status: 400 });
+  }
+  if (type === 'player') {
+    const rawThreshold = body.points_threshold ?? period ?? '';
+    const parsed = parseInt(String(rawThreshold).trim(), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return NextResponse.json({ error: 'points_threshold must be a positive number' }, { status: 400 });
+    }
+    period = String(parsed);
+  } else if (!period) {
+    return NextResponse.json(
+      { error: 'Missing required fields: period' },
+      { status: 400 }
+    );
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);

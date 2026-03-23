@@ -101,15 +101,28 @@ export default function PrizesTab() {
   const [summary, setSummary] = useState<PrizeSummary | null>(null);
   const [activeContext, setActiveContext] = useState<ActivePrizeContext | null>(null);
   const [showBanner, setShowBanner] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'monthly' | 'weekly' | 'seasonal'>('all');
+  const [filter, setFilter] = useState<'all' | 'monthly' | 'weekly' | 'seasonal' | 'player'>('all');
   const [showAllWinners, setShowAllWinners] = useState(false);
   const [countdown, setCountdown] = useState('-- : -- : --');
+  const [isPaidUser, setIsPaidUser] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         return;
+      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('subscription_status')
+          .eq('id', user.id)
+          .maybeSingle();
+        const active = profile?.subscription_status === 'active';
+        setIsPaidUser(active);
+        setSubscriptionStatus(profile?.subscription_status ?? null);
       }
       const res = await fetch('/api/prizes/dashboard', {
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -297,6 +310,36 @@ export default function PrizesTab() {
         />
       </Stack>
 
+      {!isPaidUser && (
+        <Card sx={{ ...shellSx, mb: 2, borderColor: 'rgba(251,191,36,0.35)' }}>
+          <CardContent sx={{ p: 2 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between">
+              <Box>
+                <Typography sx={{ color: '#fbbf24', fontWeight: 800, fontSize: '0.9rem' }}>
+                  Upgrade to compete for prizes and unlock all leaderboards.
+                </Typography>
+                <Typography sx={{ color: '#fde68a', fontSize: '0.75rem' }}>
+                  Your account is currently {subscriptionStatus || 'free'}.
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                href="/subscription"
+                sx={{
+                  background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
+                  color: '#0f172a',
+                  fontWeight: 800,
+                  textTransform: 'none',
+                  px: 2,
+                }}
+              >
+                Upgrade
+              </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
       <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid item xs={12} lg={8}>
           <Card sx={shellSx}>
@@ -399,9 +442,6 @@ export default function PrizesTab() {
                     ? `Gap to leader: ${gapToLeader.toLocaleString('en-US')} points (${progressToLeader}% progress).`
                     : 'No prediction entry yet for this prize period.'}
                 </Typography>
-                <Button variant="contained" fullWidth href="/predictions" sx={{ mt: 1.2 }}>
-                  Start Predicting To Win
-                </Button>
               </CardContent>
             </Card>
           </Stack>
@@ -426,7 +466,11 @@ export default function PrizesTab() {
         <CardContent sx={{ p: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.5rem' }}>How to Win Prizes</Typography>
-            <Button size="small" href="/predictions" sx={{ color: '#22c55e', fontWeight: 700 }}>Start Predicting</Button>
+            {isPaidUser ? (
+              <Button size="small" href="/predictions" sx={{ color: '#22c55e', fontWeight: 700 }}>Start Predicting</Button>
+            ) : (
+              <Button size="small" href="/subscription" sx={{ color: '#fbbf24', fontWeight: 800 }}>Upgrade to Compete</Button>
+            )}
           </Stack>
           <Grid container spacing={2} sx={{ mt: 0.8 }}>
             {[
@@ -456,11 +500,12 @@ export default function PrizesTab() {
                 { key: 'monthly', label: 'Monthly' },
                 { key: 'weekly', label: 'Weekly' },
                 { key: 'seasonal', label: 'Seasonal' },
+                { key: 'player', label: 'Player' },
               ].map((f) => (
                 <Button
                   key={f.key}
                   size="small"
-                  onClick={() => setFilter(f.key as 'all' | 'monthly' | 'weekly' | 'seasonal')}
+                  onClick={() => setFilter(f.key as 'all' | 'monthly' | 'weekly' | 'seasonal' | 'player')}
                   sx={{
                     px: 1.2,
                     minWidth: 0,

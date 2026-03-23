@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-type PeriodType = 'weekly' | 'monthly' | 'seasonal';
+type PeriodType = 'weekly' | 'monthly' | 'seasonal' | 'player';
 
 /**
  * Parse period key into date range or season id for filtering.
@@ -49,7 +49,8 @@ function getPeriodFilter(
 
 /**
  * GET /api/admin/suggested-winner?type=weekly|monthly|seasonal&period=...
- * Returns top ranked user for the given period (by total points).
+ * GET /api/admin/suggested-winner?type=player&threshold=...
+ * Returns top ranked user for the given period (by total points) or a list of player prize qualifiers.
  * Uses service role to read all predictions and match_days.
  */
 export async function GET(request: NextRequest) {
@@ -62,7 +63,149 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const type = (searchParams.get('type') || '').trim() as PeriodType;
   const period = (searchParams.get('period') || '').trim();
-  if (!['weekly', 'monthly', 'seasonal'].includes(type) || !period) {
+  const thresholdParam = (searchParams.get('threshold') || '').trim();
+
+  if (!['weekly', 'monthly', 'seasonal', 'player'].includes(type)) {
+    return NextResponse.json(
+      { error: 'Query params required: type (weekly|monthly|seasonal|player)' },
+      { status: 400 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const { data: paidProfiles, error: paidErr } = await supabase
+    .from('profiles')
+    .select('id, display_name')
+    .eq('subscription_status', 'active');
+  if (paidErr) {
+    return NextResponse.json({ error: paidErr.message }, { status: 500 });
+  }
+
+  const paidIds = (paidProfiles || []).map((p: { id: string }) => p.id);
+  const paidNameMap = new Map(
+    (paidProfiles || []).map((p: { id: string; display_name: string | null }) => [p.id, p.display_name?.trim() || 'Player'])
+  );
+
+  const fetchPredictions = async (filters: { matchDayIds?: string[]; userIds?: string[] }) => {
+    const baseSelect = 'user_id, points, ht_goals_points, predicted_half_time_goals, corners_points, ht_corners_points, match_day_id, created_at';
+    let query = supabase.from('predictions').select(baseSelect);
+    if (filters.matchDayIds?.length) {
+      query = query.in('match_day_id', filters.matchDayIds);
+    }
+    if (filters.userIds?.length) {
+      query = query.in('user_id', filters.userIds);
+    }
+    const { data, error } = await query;
+    if (!error) return { data: data as any[], error: null };
+
+    const msg = (error as { message?: string }).message || '';
+    if (
+      (msg.includes('ht_goals_points') && msg.includes('does not exist')) ||
+      (msg.includes('corners_points') && msg.includes('does not exist')) ||
+      (msg.includes('ht_corners_points') && msg.includes('does not exist'))
+    ) {
+      let fallbackQuery = supabase
+        .from('predictions')
+        .select('user_id, points, predicted_half_time_goals, match_day_id, created_at');
+      if (filters.matchDayIds?.length) {
+        fallbackQuery = fallbackQuery.in('match_day_id', filters.matchDayIds);
+      }
+      if (filters.userIds?.length) {
+        fallbackQuery = fallbackQuery.in('user_id', filters.userIds);
+      }
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      if (fallbackError) return { data: null, error: fallbackError };
+      const normalized = (fallbackData || []).map((row: any) => ({
+        ...row,
+        ht_goals_points: null,
+        corners_points: null,
+        ht_corners_points: null,
+      }));
+      return { data: normalized, error: null };
+    }
+
+    return { data: null, error };
+  };
+
+  if (type === 'player') {
+    const threshold = parseInt(thresholdParam, 10);
+    if (!Number.isFinite(threshold) || threshold <= 0) {
+      return NextResponse.json({ error: 'threshold must be a positive number' }, { status: 400 });
+    }
+    if (paidIds.length === 0) {
+      return NextResponse.json({ qualifiers: [], message: 'No paid subscribers found.' });
+    }
+
+    const { data: predictions, error: predErr } = await fetchPredictions({ userIds: paidIds });
+    if (predErr) {
+      return NextResponse.json({ error: predErr.message || String(predErr) }, { status: 500 });
+    }
+
+    const matchDayIds = [...new Set((predictions || []).map((p: any) => p.match_day_id).filter(Boolean))];
+    const { data: mdRows } = matchDayIds.length
+      ? await supabase.from('match_days').select('id, match_date').in('id', matchDayIds)
+      : { data: [] };
+    const matchDayMap = new Map((mdRows || []).map((m: { id: string; match_date: string | null }) => [m.id, m.match_date]));
+
+    const byUser: Record<string, { total: number; exact: number; events: { date: string; points: number }[] }> = {};
+    (predictions || []).forEach((p: any) => {
+      const uid = p.user_id;
+      if (!uid) return;
+      if (!byUser[uid]) {
+        byUser[uid] = { total: 0, exact: 0, events: [] };
+      }
+      const pointsVal =
+        (p.points ?? 0) +
+        (p.ht_goals_points ?? 0) +
+        (p.corners_points ?? 0) +
+        (p.ht_corners_points ?? 0);
+      const dateStr = (p.match_day_id && matchDayMap.get(p.match_day_id)) || p.created_at;
+      if (dateStr) {
+        byUser[uid].events.push({ date: dateStr, points: pointsVal });
+      }
+      byUser[uid].total += pointsVal;
+      if (p.points === 10) byUser[uid].exact += 1;
+    });
+
+    const qualifiers = Object.entries(byUser)
+      .map(([user_id, data]) => {
+        if (data.total < threshold) return null;
+        const events = data.events.slice().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        let running = 0;
+        let reachedAt: string | null = null;
+        for (const evt of events) {
+          running += evt.points;
+          if (running >= threshold) {
+            reachedAt = evt.date;
+            break;
+          }
+        }
+        return {
+          user_id,
+          display_name: paidNameMap.get(user_id) || 'Player',
+          total_points: data.total,
+          exact_hits: data.exact,
+          reached_at: reachedAt,
+        };
+      })
+      .filter(Boolean) as Array<{ user_id: string; display_name: string; total_points: number; exact_hits: number; reached_at: string | null }>;
+
+    qualifiers.sort((a, b) => {
+      const aTime = a.reached_at ? new Date(a.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const bTime = b.reached_at ? new Date(b.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
+      if (aTime !== bTime) return aTime - bTime;
+      return b.total_points - a.total_points;
+    });
+
+    return NextResponse.json({
+      qualifiers,
+      threshold,
+      message: qualifiers.length === 0 ? 'No paid players have reached this threshold yet.' : undefined,
+    });
+  }
+
+  if (!period) {
     return NextResponse.json(
       { error: 'Query params required: type (weekly|monthly|seasonal) and period (e.g. 2026-W08, 2026-02, or season UUID)' },
       { status: 400 }
@@ -77,7 +220,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const supabase = createClient(supabaseUrl, serviceKey);
+  if (paidIds.length === 0) {
+    return NextResponse.json({ suggested: null, message: 'No paid subscribers found.' });
+  }
 
   let matchDayIds: string[];
 
@@ -106,40 +251,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ suggested: null, message: 'No predictions found for this period' });
   }
 
-  const { data: predictions, error: predErr } = await supabase
-    .from('predictions')
-    .select('user_id, points')
-    .in('match_day_id', matchDayIds);
+  const { data: predictions, error: predErr } = await fetchPredictions({ matchDayIds, userIds: paidIds });
   if (predErr) {
-    return NextResponse.json({ error: predErr.message }, { status: 500 });
+    return NextResponse.json({ error: predErr.message || String(predErr) }, { status: 500 });
   }
 
-  const byUser: Record<string, number> = {};
-  (predictions || []).forEach((p: { user_id: string; points: number | null }) => {
+  const byUser: Record<string, { total_points: number; predictions_count: number }> = {};
+(predictions || []).forEach((p: { user_id: string; points: number | null; ht_goals_points: number | null; predicted_half_time_goals: number | null; corners_points: number | null; ht_corners_points: number | null }) => {
     const uid = p.user_id;
-    if (!byUser[uid]) byUser[uid] = 0;
-    byUser[uid] += p.points != null ? p.points : 0;
+    if (!byUser[uid]) byUser[uid] = { total_points: 0, predictions_count: 0 };
+    byUser[uid].total_points +=
+      (p.points ?? 0) +
+      (p.ht_goals_points ?? 0) +
+      (p.corners_points ?? 0) +
+      (p.ht_corners_points ?? 0);
+    byUser[uid].predictions_count += 1;
   });
 
   const sorted = Object.entries(byUser)
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => b[1].total_points - a[1].total_points);
   const top = sorted[0];
   if (!top) {
     return NextResponse.json({ suggested: null, message: 'No predictions found for this period' });
   }
 
-  const [winner_user_id, total_points] = top;
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('display_name')
-    .eq('id', winner_user_id)
-    .single();
+  const [winner_user_id, data] = top;
 
   return NextResponse.json({
     suggested: {
       user_id: winner_user_id,
-      display_name: (profile as { display_name: string } | null)?.display_name ?? 'Unknown',
-      total_points,
+      display_name: paidNameMap.get(winner_user_id) || 'Player',
+      total_points: data.total_points,
+      predictions_count: data.predictions_count,
     },
   });
 }

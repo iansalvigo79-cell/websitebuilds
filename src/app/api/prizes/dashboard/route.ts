@@ -215,8 +215,8 @@ async function getLeaderboardForMatchDays(
       .from('profiles')
       .select('id')
       .eq('subscription_status', 'active');
-    paidIds = (paidProfiles || []).map((p: { id: string }) => p.id);
-    if (paidIds.length === 0) {
+    const ids = (paidProfiles || []).map((p: { id: string }) => p.id);
+    if (ids.length === 0) {
       return {
         entries: [],
         participants: 0,
@@ -226,16 +226,58 @@ async function getLeaderboardForMatchDays(
         progressToLeaderPct: null,
       };
     }
+    paidIds = ids;
   }
 
-  let predQuery = supabase
-    .from('predictions')
-    .select('user_id, points, ht_goals_points, corners_points, ht_corners_points')
-    .in('match_day_id', matchDayIds);
-  if (paidIds) {
-    predQuery = predQuery.in('user_id', paidIds);
+  const fetchPredictions = async () => {
+    let predQuery = supabase
+      .from('predictions')
+      .select('user_id, points, ht_goals_points, corners_points, ht_corners_points')
+      .in('match_day_id', matchDayIds);
+    if (paidIds) {
+      predQuery = predQuery.in('user_id', paidIds);
+    }
+    const { data, error } = await predQuery;
+    if (!error) return { data: data as any[], error: null };
+
+    const msg = (error as { message?: string }).message || '';
+    if (
+      (msg.includes('ht_goals_points') && msg.includes('does not exist')) ||
+      (msg.includes('corners_points') && msg.includes('does not exist')) ||
+      (msg.includes('ht_corners_points') && msg.includes('does not exist'))
+    ) {
+      let fallbackQuery = supabase
+        .from('predictions')
+        .select('user_id, points')
+        .in('match_day_id', matchDayIds);
+      if (paidIds) {
+        fallbackQuery = fallbackQuery.in('user_id', paidIds);
+      }
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      if (fallbackError) return { data: null, error: fallbackError };
+      const normalized = (fallbackData || []).map((row: any) => ({
+        ...row,
+        ht_goals_points: null,
+        corners_points: null,
+        ht_corners_points: null,
+      }));
+      return { data: normalized, error: null };
+    }
+
+    return { data: null, error };
+  };
+
+  const { data: predictionsRows, error: predictionsError } = await fetchPredictions();
+  if (predictionsError) {
+    return {
+      entries: [],
+      participants: 0,
+      leader: null,
+      currentUser: null,
+      gapToLeader: null,
+      progressToLeaderPct: null,
+    };
   }
-  const { data: predictionsRows } = await predQuery;
 
   const grouped: Record<string, { total_points: number; predictions_count: number }> = {};
   (predictionsRows || []).forEach((row: { user_id: string; points: number | null; ht_goals_points: number | null; corners_points: number | null; ht_corners_points: number | null }) => {

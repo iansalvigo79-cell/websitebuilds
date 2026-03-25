@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   Box,
@@ -27,6 +27,7 @@ interface PrizeWithProfile {
   created_at: string;
   profiles?: { display_name: string | null } | null;
   winner_points?: number | null;
+  winner_match_day_label?: string | null;
   prize_value?: number | null;
 }
 
@@ -467,7 +468,7 @@ export default function PrizesTab() {
           <Stack direction="row" justifyContent="space-between" alignItems="center">
              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.5rem' }}>How to Win Prizes</Typography>
             {isPaidUser ? (
-              <Button size="small" href="/predictions" sx={{ color: '#22c55e', fontWeight: 700 }}>Start Predicting</Button>
+              <label></label>
             ) : (
               <Button size="small" href="/subscription" sx={{ color: '#fbbf24', fontWeight: 800 }}>Upgrade to Compete</Button>
             )}
@@ -552,6 +553,11 @@ export default function PrizesTab() {
                       <Typography sx={{ color: '#22c55e', fontWeight: 700, mt: 0.5, fontSize: '0.9rem' }}>
                         {winner.prize_value != null ? formatCurrency(winner.prize_value) : 'Value not specified'}
                       </Typography>
+                      {winner.type === 'player' && winner.winner_match_day_label && (
+                        <Typography sx={{ color: '#94a3b8', fontSize: '0.68rem', mt: 0.6 }}>
+                          Matchday: {winner.winner_match_day_label}
+                        </Typography>
+                      )}
                       <Stack direction="row" justifyContent="space-between" sx={{ mt: 1 }}>
                         <Typography sx={{ color: '#6b7280', fontSize: '0.68rem' }}>
                           {winner.winner_points != null ? `Points ${winner.winner_points}` : 'Points not available'}
@@ -582,3 +588,7 @@ export default function PrizesTab() {
     </Box>
   );
 }
+
+
+
+

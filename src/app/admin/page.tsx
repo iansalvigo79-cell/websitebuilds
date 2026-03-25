@@ -87,6 +87,7 @@ export default function AdminPage() {
   const [suggestingWinner, setSuggestingWinner] = useState(false);
   const [suggestNoPredictionsMessage, setSuggestNoPredictionsMessage] = useState<string | null>(null);
   const [creatingPrize, setCreatingPrize] = useState(false);
+  const [confirmingWinner, setConfirmingWinner] = useState(false);
   const [awardingId, setAwardingId] = useState<string | null>(null);
   const [winnerNames, setWinnerNames] = useState<Record<string, string>>({});
   const [matchDayDialogOpen, setMatchDayDialogOpen] = useState(false);
@@ -908,7 +909,7 @@ export default function AdminPage() {
       toast.error('Competition name is required');
       return;
     }
-    const icon = competitionForm.icon.trim().slice(0, 4) || '⚽';
+    const icon = competitionForm.icon.trim().slice(0, 4) || '?';
     setCreatingCompetition(true);
     try {
       const { error } = await supabase
@@ -1350,7 +1351,7 @@ export default function AdminPage() {
                             fontWeight: 700,
                           }}
                         >
-                          {s.is_active ? '● ACTIVE' : 'CLOSED'}
+                          {s.is_active ? '? ACTIVE' : 'CLOSED'}
                         </Box>
                       </Box>
                       {!s.is_active && (
@@ -1458,7 +1459,7 @@ export default function AdminPage() {
                   />
                   <TextField
                     label="ICON (emoji)"
-                    placeholder="e.g. 🇺🇸 🏆 ⭐"
+                    placeholder="e.g. ???? ?? ?"
                     size="small"
                     value={competitionForm.icon}
                     onChange={(e) => setCompetitionForm((p) => ({ ...p, icon: e.target.value }))}
@@ -1532,7 +1533,7 @@ export default function AdminPage() {
                       <TableRow key={c.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                         <TableCell>{c.name}</TableCell>
                         <TableCell>
-                          <span style={{ fontSize: '1.4rem' }}>{c.icon || '⚽'}</span>
+                          <span style={{ fontSize: '1.4rem' }}>{c.icon || '?'}</span>
                         </TableCell>
                         <TableCell>{c.short_name || '-'}</TableCell>
                         <TableCell>{c.country || '-'}</TableCell>
@@ -2592,6 +2593,9 @@ export default function AdminPage() {
                     {suggestNoPredictionsMessage}
                   </Typography>
                 )}
+                <Typography sx={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                  Step 1: Create Prize to make it live. Step 2: Suggest Winner and Confirm Winner once players qualify.
+                </Typography>
                 {isPlayerPrize && playerCandidates.length > 0 && (
                   <Box sx={{ p: 2, borderRadius: 2, backgroundColor: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(6, 182, 212, 0.25)' }}>
                     <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 1 }}>
@@ -2661,78 +2665,162 @@ export default function AdminPage() {
                   rows={2}
                   sx={{ input: { color: '#fff', backgroundColor: 'rgba(15, 23, 42, 0.7)' }, label: { color: '#06d6d0', fontWeight: 600 }, '& .MuiOutlinedInput-root textarea': { color: '#fff' }, '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' }, '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' } }}
                 />
-                <Button
-                  variant="contained"
-                  disabled={
-                    creatingPrize
-                    || !prizeForm.winner_user_id
-                    || (isPlayerPrize ? !prizeForm.points_threshold.trim() : !prizeForm.period.trim())
-                  }
-                  onClick={async () => {
-                    setCreatingPrize(true);
-                    try {
-                      const token = await getSession();
-                      if (!token) {
-                        toast.error('Please sign in again');
-                        return;
-                      }
-                      if (isPlayerPrize) {
-                        const threshold = parseInt(prizeForm.points_threshold.trim(), 10);
-                        if (!Number.isFinite(threshold) || threshold <= 0) {
-                          toast.error('Please enter a valid points threshold');
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <Button
+                    variant="contained"
+                    disabled={
+                      creatingPrize
+                      || (isPlayerPrize ? !prizeForm.points_threshold.trim() : !prizeForm.period.trim())
+                    }
+                    onClick={async () => {
+                      setCreatingPrize(true);
+                      try {
+                        const token = await getSession();
+                        if (!token) {
+                          toast.error('Please sign in again');
                           return;
                         }
-                      } else if (!prizeForm.period.trim()) {
-                        toast.error('Please enter a period');
-                        return;
+                        if (isPlayerPrize) {
+                          const threshold = parseInt(prizeForm.points_threshold.trim(), 10);
+                          if (!Number.isFinite(threshold) || threshold <= 0) {
+                            toast.error('Please enter a valid points threshold');
+                            return;
+                          }
+                        } else if (!prizeForm.period.trim()) {
+                          toast.error('Please enter a period');
+                          return;
+                        }
+                        const res = await fetch('/api/admin/prizes', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({
+                            type: prizeForm.type,
+                            period: isPlayerPrize ? '' : prizeForm.period.trim(),
+                            points_threshold: isPlayerPrize ? prizeForm.points_threshold.trim() : undefined,
+                            winner_user_id: null,
+                            prize_description: prizeForm.prize_description || null,
+                          }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok) {
+                          toast.success('Prize created successfully');
+                          setPrizeForm((p) => ({
+                            ...p,
+                            winner_user_id: '',
+                            suggested_name: '',
+                          }));
+                          setPlayerCandidates([]);
+                          fetchPrizesList();
+                        } else {
+                          toast.error(data.error || 'Failed to create prize');
+                        }
+                      } finally {
+                        setCreatingPrize(false);
                       }
-                      if (!prizeForm.winner_user_id) {
-                        toast.error('Please select a winner');
-                        return;
-                      }
-                      const res = await fetch('/api/admin/prizes', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({
-                          type: prizeForm.type,
-                          period: isPlayerPrize ? '' : prizeForm.period.trim(),
-                          points_threshold: isPlayerPrize ? prizeForm.points_threshold.trim() : undefined,
-                          winner_user_id: prizeForm.winner_user_id,
-                          prize_description: prizeForm.prize_description || null,
-                        }),
-                      });
-                      const data = await res.json().catch(() => ({}));
-                      if (res.ok) {
-                        toast.success('Prize created successfully');
-                        setPrizeForm({ type: 'weekly', period: '', points_threshold: '', winner_user_id: '', suggested_name: '', prize_description: '' });
-                        setPlayerCandidates([]);
-                        fetchPrizesList();
-                      } else {
-                        toast.error(data.error || 'Failed to create prize');
-                      }
-                    } finally {
-                      setCreatingPrize(false);
+                    }}
+                    sx={{ 
+                      background: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)',
+                      color: '#fff', 
+                      fontWeight: 700,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      py: 1.5,
+                      borderRadius: 2,
+                      boxShadow: '0 6px 20px rgba(6, 182, 212, 0.4)',
+                      transition: 'all 0.3s ease',
+                      '&:hover': { 
+                        boxShadow: '0 8px 28px rgba(6, 182, 212, 0.6)',
+                        transform: 'translateY(-2px)'
+                      },
+                      '&:disabled': { opacity: 0.6, transform: 'none' }
+                    }}
+                  >
+                    {creatingPrize ? 'Creating...' : 'Create Prize'}
+                  </Button>
+                  <Button
+                    variant="contained"
+                    disabled={
+                      confirmingWinner
+                      || !prizeForm.winner_user_id
+                      || (isPlayerPrize ? !prizeForm.points_threshold.trim() : !prizeForm.period.trim())
                     }
-                  }}
-                  sx={{ 
-                    background: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)',
-                    color: '#fff', 
-                    fontWeight: 700,
-                    textTransform: 'none',
-                    fontSize: '1rem',
-                    py: 1.5,
-                    borderRadius: 2,
-                    boxShadow: '0 6px 20px rgba(6, 182, 212, 0.4)',
-                    transition: 'all 0.3s ease',
-                    '&:hover': { 
-                      boxShadow: '0 8px 28px rgba(6, 182, 212, 0.6)',
-                      transform: 'translateY(-2px)'
-                    },
-                    '&:disabled': { opacity: 0.6, transform: 'none' }
-                  }}
-                >
-                  {creatingPrize ? 'Creating...' : (isPlayerPrize ? 'Confirm Winner' : 'Create Prize')}
-                </Button>
+                    onClick={async () => {
+                      setConfirmingWinner(true);
+                      try {
+                        const token = await getSession();
+                        if (!token) {
+                          toast.error('Please sign in again');
+                          return;
+                        }
+                        if (isPlayerPrize) {
+                          const threshold = parseInt(prizeForm.points_threshold.trim(), 10);
+                          if (!Number.isFinite(threshold) || threshold <= 0) {
+                            toast.error('Please enter a valid points threshold');
+                            return;
+                          }
+                        } else if (!prizeForm.period.trim()) {
+                          toast.error('Please enter a period');
+                          return;
+                        }
+                        if (!prizeForm.winner_user_id) {
+                          toast.error('Please select a winner');
+                          return;
+                        }
+                        const periodKey = isPlayerPrize ? prizeForm.points_threshold.trim() : prizeForm.period.trim();
+                        const pendingCandidates = prizesList.filter((p) =>
+                          p.type === prizeForm.type
+                          && (p.period ?? '') === periodKey
+                          && !p.winner_user_id
+                        );
+                        if (pendingCandidates.length === 0) {
+                          toast.error('Create the prize first (no pending prize found for this period).');
+                          return;
+                        }
+                        const pendingPrize = pendingCandidates
+                          .slice()
+                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+
+                        const res = await fetch(`/api/admin/prizes/${pendingPrize.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({
+                            winner_user_id: prizeForm.winner_user_id,
+                            prize_description: prizeForm.prize_description || null,
+                          }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (res.ok) {
+                          toast.success('Winner confirmed and prize saved');
+                          setPrizeForm((p) => ({
+                            ...p,
+                            winner_user_id: '',
+                            suggested_name: '',
+                          }));
+                          setPlayerCandidates([]);
+                          fetchPrizesList();
+                        } else {
+                          toast.error(data.error || 'Failed to confirm winner');
+                        }
+                      } finally {
+                        setConfirmingWinner(false);
+                      }
+                    }}
+                    sx={{
+                      backgroundColor: '#16a34a',
+                      color: '#fff',
+                      fontWeight: 700,
+                      textTransform: 'none',
+                      fontSize: '1rem',
+                      py: 1.5,
+                      borderRadius: 2,
+                      boxShadow: '0 6px 20px rgba(22, 163, 74, 0.35)',
+                      '&:hover': { backgroundColor: '#15803d' },
+                      '&:disabled': { opacity: 0.6 }
+                    }}
+                  >
+                    {confirmingWinner ? 'Confirming...' : 'Confirm Winner'}
+                  </Button>
+                </Stack>
               </Stack>
             </Box>
 
@@ -2757,6 +2845,7 @@ export default function AdminPage() {
                         <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Type</TableCell>
                         <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Period</TableCell>
                         <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Winner</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Matchday</TableCell>
                         <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Prize</TableCell>
                         <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Status</TableCell>
                         <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Actions</TableCell>
@@ -2773,20 +2862,27 @@ export default function AdminPage() {
                             />
                           </TableCell>
                           <TableCell sx={{ fontWeight: 500 }}>
-                            {p.type === 'player' ? `${p.period} pts threshold` : p.period}
+                            {p.type === 'player' ? (p.period ? `${p.period} pts threshold` : '—') : p.period}
                           </TableCell>
-                          <TableCell>{(p as Prize & { winner_display_name?: string | null }).winner_display_name || winnerNames[p.winner_user_id] || p.winner_user_id.slice(0, 8) + '...'}</TableCell>
+                          <TableCell>{(p as Prize & { winner_display_name?: string | null }).winner_display_name || (p.winner_user_id ? (winnerNames[p.winner_user_id] || (p.winner_user_id.slice(0, 8) + '...')) : '—')}</TableCell>
+                          <TableCell>
+                            {p.type === 'player'
+                              ? ((p as Prize & { winner_match_day_label?: string | null }).winner_match_day_label || '—')
+                              : '—'}
+                          </TableCell>
                           <TableCell sx={{ maxWidth: 200, fontSize: '0.9rem' }}>{p.prize_description || ''}</TableCell>
                           <TableCell>
                             {p.status === 'awarded' ? (
                               <Chip size="small" icon={<CheckCircleIcon />} label="Awarded" sx={{ backgroundColor: 'rgba(22, 163, 74, 0.25)', color: '#16a34a', fontWeight: 600 }} />
+                            ) : !p.winner_user_id ? (
+                              <Chip size="small" label="Active" sx={{ backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', fontWeight: 600 }} />
                             ) : (
                               <Chip size="small" label="Pending" sx={{ backgroundColor: 'rgba(249, 115, 22, 0.25)', color: '#f97316', fontWeight: 600 }} />
                             )}
                           </TableCell>
                           <TableCell align="right">
-                            {p.status === 'pending' && (
-                              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                              {p.status !== 'awarded' && p.winner_user_id ? (
                                 <Button
                                   size="small"
                                   disabled={awardingId === p.id}
@@ -2818,39 +2914,43 @@ export default function AdminPage() {
                                 >
                                   {awardingId === p.id ? '...' : 'Award'}
                                 </Button>
-                                <Tooltip title="Delete this prize entry">
-                                  <Button
-                                    size="small"
-                                    sx={{ color: '#f87171', textTransform: 'none', fontWeight: 600 }}
-                                    onClick={async () => {
-                                      if (!window.confirm('Delete this prize entry?')) return;
-                                      try {
-                                        const token = await getSession();
-                                        if (!token) {
-                                          toast.error('Please sign in again');
-                                          return;
-                                        }
-                                        const res = await fetch(`/api/admin/prizes/${p.id}`, {
-                                          method: 'DELETE',
-                                          headers: { Authorization: `Bearer ${token}` },
-                                        });
-                                        const data = await res.json().catch(() => ({}));
-                                        if (res.ok) {
-                                          toast.success('Prize entry deleted');
-                                          fetchPrizesList();
-                                        } else {
-                                          toast.error(data.error || 'Failed to delete');
-                                        }
-                                      } catch {
-                                        toast.error('Failed to delete prize');
+                              ) : !p.winner_user_id ? (
+                                <Typography sx={{ color: '#94a3b8', fontSize: '0.8rem', fontWeight: 600 }}>
+                                  Awaiting winner
+                                </Typography>
+                              ) : null}
+                              <Tooltip title="Delete this prize entry">
+                                <Button
+                                  size="small"
+                                  sx={{ color: '#f87171', textTransform: 'none', fontWeight: 600 }}
+                                  onClick={async () => {
+                                    if (!window.confirm('Delete this prize entry?')) return;
+                                    try {
+                                      const token = await getSession();
+                                      if (!token) {
+                                        toast.error('Please sign in again');
+                                        return;
                                       }
-                                    }}
-                                  >
-                                    Delete
-                                  </Button>
-                                </Tooltip>
-                              </Stack>
-                            )}
+                                      const res = await fetch(`/api/admin/prizes/${p.id}`, {
+                                        method: 'DELETE',
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      });
+                                      const data = await res.json().catch(() => ({}));
+                                      if (res.ok) {
+                                        toast.success('Prize entry deleted');
+                                        fetchPrizesList();
+                                      } else {
+                                        toast.error(data.error || 'Failed to delete');
+                                      }
+                                    } catch {
+                                      toast.error('Failed to delete prize');
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </Tooltip>
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -3338,3 +3438,16 @@ export default function AdminPage() {
     </Box>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

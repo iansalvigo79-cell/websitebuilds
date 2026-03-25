@@ -20,19 +20,23 @@ export async function PATCH(
     return NextResponse.json({ error: 'Prize id required' }, { status: 400 });
   }
 
-  let body: { status?: string; prize_description?: string };
+  let body: { status?: string; prize_description?: string; winner_user_id?: string | null };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const updates: { status?: string; prize_description?: string } = {};
+  const updates: { status?: string; prize_description?: string; winner_user_id?: string | null } = {};
   if (body.status !== undefined) {
     if (body.status !== 'pending' && body.status !== 'awarded') {
       return NextResponse.json({ error: 'status must be pending or awarded' }, { status: 400 });
     }
     updates.status = body.status;
+  }
+  if (body.winner_user_id !== undefined) {
+    const trimmed = body.winner_user_id?.trim();
+    updates.winner_user_id = trimmed && trimmed.length > 0 ? trimmed : null;
   }
   if (body.prize_description !== undefined) {
     updates.prize_description = body.prize_description;

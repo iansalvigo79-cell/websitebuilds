@@ -122,29 +122,50 @@ export async function POST(request: NextRequest) {
       const totalCorners = md.total_corners;
       const htCorners = md.ht_corners;
 
-      const { data: predictions, error: fetchErr } = await supabase
+      let predictions: any[] | null = null;
+      const { data: primaryPreds, error: fetchErr } = await supabase
         .from('predictions')
-        .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
+        .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ht_goals, predicted_ft_corners, predicted_total_corners, predicted_ht_corners')
         .eq('match_day_id', md.id);
 
-      if (fetchErr) {
-        console.error('fetch predictions error', md.id, fetchErr);
-        continue;
+      if (!fetchErr) {
+        predictions = primaryPreds as any[];
+      } else {
+        const { data: fallbackData, error: fallbackErr } = await supabase
+          .from('predictions')
+          .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
+          .eq('match_day_id', md.id);
+        if (!fallbackErr) {
+          predictions = fallbackData as any[];
+        } else {
+          const { data: altData, error: altErr } = await supabase
+            .from('predictions')
+            .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+            .eq('match_day_id', md.id);
+          if (altErr) {
+            console.error('fetch predictions error', md.id, altErr);
+            continue;
+          }
+          predictions = altData as any[];
+        }
       }
 
       for (const p of predictions || []) {
         const update: Record<string, number | null> = {};
+        const htPred = (p as any).predicted_half_time_goals ?? (p as any).predicted_ht_goals ?? null;
+        const ftCornersPred = (p as any).predicted_ft_corners ?? (p as any).predicted_total_corners ?? null;
+        const htCornersPred = (p as any).predicted_ht_corners ?? null;
         if (actual != null) {
           update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, actual) : null;
         }
         if (htGoals != null) {
-          update.ht_goals_points = p.predicted_half_time_goals != null ? calculatePoints(p.predicted_half_time_goals, htGoals) : null;
+          update.ht_goals_points = htPred != null ? calculatePoints(htPred, htGoals) : null;
         }
         if (totalCorners != null) {
-          update.corners_points = p.predicted_ft_corners != null ? calculatePoints(p.predicted_ft_corners, totalCorners) : null;
+          update.corners_points = ftCornersPred != null ? calculatePoints(ftCornersPred, totalCorners) : null;
         }
         if (htCorners != null) {
-          update.ht_corners_points = p.predicted_ht_corners != null ? calculatePoints(p.predicted_ht_corners, htCorners) : null;
+          update.ht_corners_points = htCornersPred != null ? calculatePoints(htCornersPred, htCorners) : null;
         }
         if (Object.keys(update).length === 0) continue;
         const { error: updateErr } = await supabase
@@ -157,19 +178,24 @@ export async function POST(request: NextRequest) {
         }
 
         const errMsg = updateErr.message?.toLowerCase() || '';
-        if (update.points != null && errMsg.includes('column')) {
-          const { error: retryErr } = await supabase
-            .from('predictions')
-            .update({ points: update.points })
-            .eq('id', p.id);
-          if (!retryErr) {
-            totalUpdated += 1;
-          } else {
-            console.error('Failed to update prediction (retry)', p.id, retryErr);
-          }
-        } else {
-          console.error('Failed to update prediction', p.id, updateErr);
+        const missingCols: string[] = [];
+        if (errMsg.includes('ht_goals_points') && errMsg.includes('does not exist')) {
+          missingCols.push('ht_goals_points');
         }
+        if (errMsg.includes('corners_points') && errMsg.includes('does not exist')) {
+          missingCols.push('corners_points');
+        }
+        if (errMsg.includes('ht_corners_points') && errMsg.includes('does not exist')) {
+          missingCols.push('ht_corners_points');
+        }
+        if (missingCols.length > 0) {
+          return NextResponse.json(
+            { error: `predictions table missing columns: ${missingCols.join(', ')}` },
+            { status: 500 }
+          );
+        }
+
+        console.error('Failed to update prediction', p.id, updateErr);
       }
     }
 

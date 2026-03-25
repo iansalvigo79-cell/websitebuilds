@@ -16,16 +16,29 @@ export interface Profile {
   created_at: string;
 }
 
-/** Badge types for streaks, exact predictions, leaderboard milestones */
-export type BadgeType =
-  | 'exact_prediction'
-  | 'streak_3'
-  | 'streak_5'
-  | 'streak_10'
-  | 'top_weekly'
-  | 'top_monthly'
-  | 'top_season'
-  | 'first_prediction';
+/** Badge slug type (dynamic badges are defined in the badges table). */
+export type BadgeType = string;
+
+export interface Badge {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  requirement_type: string;
+  requirement_value: number | null;
+  requirement_secondary_value: number | null;
+  is_paid_only: boolean | null;
+  created_at: string;
+}
+
+export interface UserBadge {
+  id: string;
+  user_id: string;
+  badge_id: string;
+  earned_at: string;
+}
 
 export interface League {
   id: string;
@@ -110,12 +123,14 @@ export interface Team {
   name: string;
 }
 
-/** Prize winner record for weekly/monthly/seasonal. */
+/** Prize winner record (supports multiple winners per prize). */
 export interface PrizeWinner {
   id: string;
   user_id: string;
-  period_type: 'weekly' | 'monthly' | 'seasonal';
-  period_key: string;
+  prize_id: string;
+  match_day_id?: string | null;
+  points?: number | null;
+  earned_at?: string | null;
   created_at: string;
 }
 
@@ -126,8 +141,9 @@ export type PrizeStatus = 'pending' | 'awarded';
 export interface Prize {
   id: string;
   type: PrizeType;
-  period: string;
-  winner_user_id: string;
+  period: string | null;
+  points_threshold?: number | null;
+  winner_user_id: string | null;
   prize_description: string | null;
   status: PrizeStatus;
   created_at: string;

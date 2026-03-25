@@ -37,7 +37,9 @@ export async function POST(request: NextRequest) {
     matchDayId?: string
     predicted_total_goals?: number
     predicted_half_time_goals?: number | null
+    predicted_ht_goals?: number | null
     predicted_ft_corners?: number | null
+    predicted_total_corners?: number | null
     predicted_ht_corners?: number | null
   };
   try {
@@ -46,7 +48,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { matchDayId, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners } = body;
+  const {
+    matchDayId,
+    predicted_total_goals,
+    predicted_half_time_goals,
+    predicted_ht_goals,
+    predicted_ft_corners,
+    predicted_total_corners,
+    predicted_ht_corners,
+  } = body;
   if (!matchDayId || typeof predicted_total_goals !== 'number' || predicted_total_goals < 0) {
     return NextResponse.json(
       { error: 'matchDayId and a non-negative predicted_total_goals are required' },
@@ -121,6 +131,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const halfTimeGoals = predicted_half_time_goals ?? predicted_ht_goals ?? null;
+  const ftCorners = predicted_ft_corners ?? predicted_total_corners ?? null;
+
   const { error: upsertError } = await dbClient
     .from('predictions')
     .upsert(
@@ -128,14 +141,36 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         match_day_id: matchDayId,
         predicted_total_goals,
-        predicted_half_time_goals: predicted_half_time_goals ?? null,
-        predicted_ft_corners: predicted_ft_corners ?? null,
+        predicted_half_time_goals: halfTimeGoals,
+        predicted_ft_corners: ftCorners,
         predicted_ht_corners: predicted_ht_corners ?? null,
       },
       { onConflict: 'user_id,match_day_id' }
     );
 
   if (upsertError) {
+    const msg = upsertError.message?.toLowerCase() || '';
+    const missingHalfTime = msg.includes('predicted_half_time_goals') && msg.includes('does not exist');
+    const missingFtCorners = msg.includes('predicted_ft_corners') && msg.includes('does not exist');
+    if (missingHalfTime || missingFtCorners) {
+      const { error: fallbackError } = await dbClient
+        .from('predictions')
+        .upsert(
+          {
+            user_id: user.id,
+            match_day_id: matchDayId,
+            predicted_total_goals,
+            predicted_ht_goals: halfTimeGoals,
+            predicted_total_corners: ftCorners,
+            predicted_ht_corners: predicted_ht_corners ?? null,
+          },
+          { onConflict: 'user_id,match_day_id' }
+        );
+      if (!fallbackError) {
+        return NextResponse.json({ ok: true });
+      }
+      return NextResponse.json({ error: fallbackError.message || 'Failed to save prediction' }, { status: 500 });
+    }
     return NextResponse.json({ error: upsertError.message || 'Failed to save prediction' }, { status: 500 });
   }
 

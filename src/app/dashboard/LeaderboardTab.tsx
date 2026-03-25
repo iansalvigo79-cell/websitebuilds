@@ -513,10 +513,13 @@ export default function LeaderboardTab() {
 
         const withDiff = (preds as any[]).map((p) => {
           const profileData = profileMap.get(p.user_id);
+          const htPred = p.predicted_half_time_goals ?? p.predicted_ht_goals ?? null;
+          const ftCornersPred = p.predicted_ft_corners ?? p.predicted_total_corners ?? null;
+          const htCornersPred = p.predicted_ht_corners ?? null;
           const ftPoints = computePoints(p.predicted_total_goals, actual, p.points);
-          const htPoints = htGoals != null ? computePoints(p.predicted_half_time_goals, htGoals, p.ht_goals_points) : 0;
-          const cornersPoints = totalCorners != null ? computePoints(p.predicted_ft_corners, totalCorners, p.corners_points) : 0;
-          const htCornersPoints = htCorners != null ? computePoints(p.predicted_ht_corners, htCorners, p.ht_corners_points) : 0;
+          const htPoints = htGoals != null ? computePoints(htPred, htGoals, p.ht_goals_points) : 0;
+          const cornersPoints = totalCorners != null ? computePoints(ftCornersPred, totalCorners, p.corners_points) : 0;
+          const htCornersPoints = htCorners != null ? computePoints(htCornersPred, htCorners, p.ht_corners_points) : 0;
           const selectedPredicted = getPredictionForType(p, activeGameType);
           const selectedStoredPoints = getPointsForType(p, activeGameType);
           const hasPrediction = selectedPredicted != null || selectedStoredPoints > 0;

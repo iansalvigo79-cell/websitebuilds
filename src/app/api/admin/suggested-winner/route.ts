@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 type PeriodType = 'weekly' | 'monthly' | 'seasonal' | 'player';
 
 /**
  * Parse period key into date range or season id for filtering.
- * - weekly: "2026-W08" -> ISO week Mon–Sun
- * - monthly: "2026-02" -> 1st–last of month
+ * - weekly: "2026-W08" -> ISO week Monâ€“Sun
+ * - monthly: "2026-02" -> 1stâ€“last of month
  * - seasonal: UUID -> use season_id
  */
 function getPeriodFilter(
@@ -148,55 +148,48 @@ export async function GET(request: NextRequest) {
       : { data: [] };
     const matchDayMap = new Map((mdRows || []).map((m: { id: string; match_date: string | null }) => [m.id, m.match_date]));
 
-    const byUser: Record<string, { total: number; exact: number; events: { date: string; points: number }[] }> = {};
+    const byUser: Record<string, { best_points: number; exact: number; reached_at: string | null }> = {};
     (predictions || []).forEach((p: any) => {
       const uid = p.user_id;
       if (!uid) return;
-      if (!byUser[uid]) {
-        byUser[uid] = { total: 0, exact: 0, events: [] };
-      }
       const pointsVal =
         (p.points ?? 0) +
         (p.ht_goals_points ?? 0) +
         (p.corners_points ?? 0) +
         (p.ht_corners_points ?? 0);
-      const dateStr = (p.match_day_id && matchDayMap.get(p.match_day_id)) || p.created_at;
-      if (dateStr) {
-        byUser[uid].events.push({ date: dateStr, points: pointsVal });
+      if (pointsVal < threshold) return;
+
+      const reachedAt = (p.match_day_id && matchDayMap.get(p.match_day_id)) || p.created_at || null;
+      const exactHits = [p.points, p.ht_goals_points, p.corners_points, p.ht_corners_points]
+        .filter((val) => val === 10).length;
+
+      const current = byUser[uid];
+      if (!current) {
+        byUser[uid] = { best_points: pointsVal, exact: exactHits, reached_at: reachedAt };
+        return;
       }
-      byUser[uid].total += pointsVal;
-      if (p.points === 10) byUser[uid].exact += 1;
+
+      const currentTime = current.reached_at ? new Date(current.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const nextTime = reachedAt ? new Date(reachedAt).getTime() : Number.MAX_SAFE_INTEGER;
+      if (pointsVal > current.best_points || (pointsVal === current.best_points && nextTime < currentTime)) {
+        byUser[uid] = { best_points: pointsVal, exact: exactHits, reached_at: reachedAt };
+      }
     });
 
     const qualifiers = Object.entries(byUser)
-      .map(([user_id, data]) => {
-        if (data.total < threshold) return null;
-        const events = data.events.slice().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        let running = 0;
-        let reachedAt: string | null = null;
-        for (const evt of events) {
-          running += evt.points;
-          if (running >= threshold) {
-            reachedAt = evt.date;
-            break;
-          }
-        }
-        return {
-          user_id,
-          display_name: paidNameMap.get(user_id) || 'Player',
-          total_points: data.total,
-          exact_hits: data.exact,
-          reached_at: reachedAt,
-        };
-      })
-      .filter(Boolean) as Array<{ user_id: string; display_name: string; total_points: number; exact_hits: number; reached_at: string | null }>;
-
-    qualifiers.sort((a, b) => {
-      const aTime = a.reached_at ? new Date(a.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const bTime = b.reached_at ? new Date(b.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
-      if (aTime !== bTime) return aTime - bTime;
-      return b.total_points - a.total_points;
-    });
+      .map(([user_id, data]) => ({
+        user_id,
+        display_name: paidNameMap.get(user_id) || 'Player',
+        total_points: data.best_points,
+        exact_hits: data.exact,
+        reached_at: data.reached_at,
+      }))
+      .sort((a, b) => {
+        const aTime = a.reached_at ? new Date(a.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
+        const bTime = b.reached_at ? new Date(b.reached_at).getTime() : Number.MAX_SAFE_INTEGER;
+        if (aTime !== bTime) return aTime - bTime;
+        return b.total_points - a.total_points;
+      });
 
     return NextResponse.json({
       qualifiers,
@@ -204,7 +197,6 @@ export async function GET(request: NextRequest) {
       message: qualifiers.length === 0 ? 'No paid players have reached this threshold yet.' : undefined,
     });
   }
-
   if (!period) {
     return NextResponse.json(
       { error: 'Query params required: type (weekly|monthly|seasonal) and period (e.g. 2026-W08, 2026-02, or season UUID)' },
@@ -286,3 +278,6 @@ export async function GET(request: NextRequest) {
     },
   });
 }
+
+
+

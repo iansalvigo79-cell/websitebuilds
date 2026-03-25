@@ -67,6 +67,9 @@ A round of games (e.g., gameweek 1, 2, 3, etc).
 | `cutoff_at` | TIMESTAMP | When predictions must be submitted by |
 | `is_open` | BOOLEAN | False when scores are entered |
 | `actual_total_goals` | INTEGER | Total goals scored by selected games |
+| `ht_goals` | INTEGER | Total half-time goals scored |
+| `total_corners` | INTEGER | Total full-time corners |
+| `ht_corners` | INTEGER | Total half-time corners |
 | `created_at` | TIMESTAMP | Creation date |
 
 **Example:**
@@ -117,7 +120,7 @@ Individual matches in a match day.
 ---
 
 ### `predictions`
-Player's prediction for a match day's total goals.
+Player's prediction for a match day's totals (goals and corners).
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -125,7 +128,13 @@ Player's prediction for a match day's total goals.
 | `user_id` | UUID | Foreign key to profiles |
 | `match_day_id` | UUID | Foreign key to match_days |
 | `predicted_total_goals` | INTEGER | Player's guess of total goals |
-| `points` | INTEGER | 10 if correct, 0 if wrong |
+| `predicted_half_time_goals` | INTEGER | Player's guess of half-time goals |
+| `predicted_ft_corners` | INTEGER | Player's guess of total corners |
+| `predicted_ht_corners` | INTEGER | Player's guess of half-time corners |
+| `points` | INTEGER | Points for FT goals (10 exact, 0+ for near misses) |
+| `ht_goals_points` | INTEGER | Points for HT goals |
+| `corners_points` | INTEGER | Points for FT corners |
+| `ht_corners_points` | INTEGER | Points for HT corners |
 | `created_at` | TIMESTAMP | Prediction submit time |
 
 **Constraints:**
@@ -139,7 +148,13 @@ Player's prediction for a match day's total goals.
   "user_id": "123e4567-e89b-12d3-a456-426614174000",
   "match_day_id": "660e8400-e29b-41d4-a716-446665440001",
   "predicted_total_goals": 24,
+  "predicted_half_time_goals": 10,
+  "predicted_ft_corners": 18,
+  "predicted_ht_corners": 6,
   "points": 10,
+  "ht_goals_points": 7,
+  "corners_points": 4,
+  "ht_corners_points": 2,
   "created_at": "2024-08-17T10:15:00"
 }
 ```
@@ -452,6 +467,9 @@ export interface MatchDay {
   cutoff_at: string;
   is_open: boolean;
   actual_total_goals: number | null;
+  ht_goals: number | null;
+  total_corners: number | null;
+  ht_corners: number | null;
   created_at: string;
 }
 
@@ -472,7 +490,13 @@ export interface Prediction {
   user_id: string;
   match_day_id: string;
   predicted_total_goals: number;
+  predicted_half_time_goals: number | null;
+  predicted_ft_corners: number | null;
+  predicted_ht_corners: number | null;
   points: number | null;
+  ht_goals_points: number | null;
+  corners_points: number | null;
+  ht_corners_points: number | null;
   created_at: string;
 }
 

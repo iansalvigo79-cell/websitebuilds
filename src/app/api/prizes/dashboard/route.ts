@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+﻿import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +13,7 @@ export interface PrizeWithProfile {
   created_at: string;
   profiles?: { display_name: string | null } | null;
   winner_points?: number | null;
+  winner_match_day_label?: string | null;
   prize_value?: number | null;
 }
 
@@ -71,6 +72,19 @@ function parseMoney(value: string | null): number | null {
   }
 
   return null;
+}
+
+function formatMatchDayLabel(
+  matchDay?: { name?: string | null; match_date?: string | null },
+  earnedAt?: string | null
+) {
+  const name = matchDay?.name?.trim();
+  if (name) return name;
+  const dateStr = matchDay?.match_date || earnedAt;
+  if (!dateStr) return null;
+  const dt = new Date(dateStr);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function startOfCurrentMonthUtc(now: Date) {
@@ -426,6 +440,28 @@ export async function GET(request: Request) {
     });
   }
 
+  const recentPrizeIds = (recentRows || []).map((r) => r.id);
+  const { data: prizeWinnerRows } = recentPrizeIds.length
+    ? await supabase
+        .from('prize_winners')
+        .select('prize_id, match_day_id, earned_at')
+        .in('prize_id', recentPrizeIds)
+    : { data: [] as any[] };
+  const recentMatchDayIds = [...new Set((prizeWinnerRows || []).map((row: any) => row.match_day_id).filter(Boolean))] as string[];
+  const { data: recentMatchDays } = recentMatchDayIds.length
+    ? await supabase
+        .from('match_days')
+        .select('id, name, match_date')
+        .in('id', recentMatchDayIds)
+    : { data: [] as any[] };
+  const recentMatchDayMap = new Map((recentMatchDays || []).map((md: any) => [md.id, md]));
+  const recentWinnerMatchdayMap = new Map(
+    (prizeWinnerRows || []).map((row: any) => [
+      row.prize_id,
+      formatMatchDayLabel(row.match_day_id ? recentMatchDayMap.get(row.match_day_id) : null, row.earned_at),
+    ])
+  );
+
   const periodContextCache = new Map<string, Promise<PeriodContext>>();
   const leaderboardCache = new Map<
     string,
@@ -501,6 +537,7 @@ export async function GET(request: Request) {
         ...r,
         profiles: r.winner_user_id ? { display_name: profilesMap[r.winner_user_id] ?? null } : null,
         winner_points: winnerPoints,
+        winner_match_day_label: recentWinnerMatchdayMap.get(r.id) ?? null,
         prize_value: parseMoney(r.prize_description),
       };
     })
@@ -581,4 +618,11 @@ export async function GET(request: Request) {
     }
   );
 }
+
+
+
+
+
+
+
 

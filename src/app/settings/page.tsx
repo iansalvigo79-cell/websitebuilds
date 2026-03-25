@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Box, Button, Container, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
@@ -152,6 +152,17 @@ export default function SettingsPage() {
       '&.Mui-focused': {
         borderColor: '#16a34a',
       },
+    },
+    '& input:-webkit-autofill, & textarea:-webkit-autofill': {
+      WebkitBoxShadow: '0 0 0 1000px #111827 inset',
+      WebkitTextFillColor: '#fff',
+      caretColor: '#fff',
+      borderRadius: '8px',
+    },
+    '& input:-webkit-autofill:hover, & input:-webkit-autofill:focus, & textarea:-webkit-autofill:hover, & textarea:-webkit-autofill:focus': {
+      WebkitBoxShadow: '0 0 0 1000px #111827 inset',
+      WebkitTextFillColor: '#fff',
+      caretColor: '#fff',
     },
     '& .MuiOutlinedInput-input::placeholder': {
       color: '#888',
@@ -666,6 +677,10 @@ export default function SettingsPage() {
     </Box>
   );
 }
+
+
+
+
 
 
 

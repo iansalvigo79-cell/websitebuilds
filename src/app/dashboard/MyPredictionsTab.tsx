@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   Avatar,
@@ -9,7 +9,6 @@ import {
   Chip,
   CircularProgress,
   Grid,
-  LinearProgress,
   Stack,
   Table,
   TableBody,
@@ -24,12 +23,8 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { BadgeType } from '@/types/database';
-import { BADGE_INFO } from '@/lib/badges';
+import { BADGE_CATALOG, getBadgeLabel, getBadgeDescription, getBadgeIcon } from '@/lib/badges';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, Area } from 'recharts';
-import InsightsIcon from '@mui/icons-material/Insights';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import PercentIcon from '@mui/icons-material/Percent';
-import WhatshotIcon from '@mui/icons-material/Whatshot';
 import LockIcon from '@mui/icons-material/Lock';
 import ModernLoader from '@/components/ui/ModernLoader';
 
@@ -43,6 +38,9 @@ interface PredictionRow {
   actual_total_goals: number | null;
   points: number | null;
   ft_points: number | null;
+  ht_goals_points?: number | null;
+  corners_points?: number | null;
+  ht_corners_points?: number | null;
   isExact: boolean;
 }
 
@@ -55,13 +53,21 @@ interface ProfileInfo {
 
 type HistoryFilter = 'all' | 'exact' | 'last5';
 
-const allBadgeTypes: BadgeType[] = ['first_prediction', 'exact_prediction', 'streak_3', 'streak_5', 'streak_10', 'top_weekly', 'top_monthly', 'top_season'];
 
 const cardSx = { backgroundColor: '#161a23', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' };
 
 const fmtMember = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 const initials = (n?: string) => (n || 'Goalactico').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase();
 const weekStart = (d: Date) => { const x = new Date(d); const day = x.getDay(); x.setDate(x.getDate() - day + (day === 0 ? -6 : 1)); x.setHours(0, 0, 0, 0); return x; };
+
+type PointField = 'ft_points' | 'ht_goals_points' | 'corners_points' | 'ht_corners_points';
+
+const calcAccuracyPoints = (rows: PredictionRow[], field: PointField): number | null => {
+  const withPoints = rows.filter((r) => r[field] != null);
+  if (withPoints.length === 0) return null;
+  const hits = withPoints.filter((r) => (r[field] ?? 0) > 0).length;
+  return Math.round((hits / withPoints.length) * 100);
+};
 
 function useAnimatedNumber(target: number, durationMs = 900) {
   const [value, setValue] = useState(0);
@@ -94,26 +100,32 @@ function useAnimatedNumber(target: number, durationMs = 900) {
 
 export default function MyPredictionsTab() {
   const [profile, setProfile] = useState<ProfileInfo | null>(null);
-  const [seasonName, setSeasonName] = useState('');
-  const [globalRank, setGlobalRank] = useState<number | null>(null);
   const [totalPoints, setTotalPoints] = useState(0);
   const [thisWeekPoints, setThisWeekPoints] = useState(0);
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
-  const [matchdaysPlayed, setMatchdaysPlayed] = useState(0);
-  const [exactCount, setExactCount] = useState(0);
-  const [bestStreak, setBestStreak] = useState(0);
   const [earnedBadges, setEarnedBadges] = useState<BadgeType[]>([]);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
+  const allBadges = BADGE_CATALOG;
 
   const fetchData = useCallback(async () => {
     try {
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        fetch('/api/badges/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ userId: user.id }),
+        }).catch(() => {});
+      }
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
       .select('*')
       .eq('id', user.id)
       .maybeSingle();
@@ -130,8 +142,6 @@ export default function MyPredictionsTab() {
     if (seasonError) {
       console.error('Supabase season fetch error (MyPredictions):', seasonError);
     }
-    if (seasonData) setSeasonName(seasonData.name || '');
-
     const { data: predRows, error: predError } = await supabase
       .from('predictions')
       .select('*')
@@ -186,11 +196,12 @@ export default function MyPredictionsTab() {
         rank = idx >= 0 ? idx + 1 : null;
       }
     }
-    setGlobalRank(rank);
 
     const sortedMd = mdIds.map((id) => ({ id, d: mdMap.get(id)?.match_date })).filter((x) => x.d).sort((a, b) => (a.d! > b.d! ? 1 : -1)).map((x) => x.id);
     const start = weekStart(new Date());
-    let total = 0, week = 0, exact = 0;
+    let total = 0;
+    let week = 0;
+    let exact = 0;
     const rows: PredictionRow[] = [];
     list.forEach((p: any) => {
       const md = mdMap.get(p.match_day_id); if (!md) return;
@@ -205,17 +216,25 @@ export default function MyPredictionsTab() {
       const isExact = md.actual_total_goals != null && p.predicted_total_goals === md.actual_total_goals && ftPoints === 10;
       if (isExact) exact += 1;
       rows.push({
-        id: p.id, match_day_id: p.match_day_id, match_date: md.match_date, matchdayLabel: `MD ${sortedMd.indexOf(p.match_day_id) + 1}`,
+        id: p.id,
+        match_day_id: p.match_day_id,
+        match_date: md.match_date,
+        matchdayLabel: `MD ${sortedMd.indexOf(p.match_day_id) + 1}`,
         matchdayName: md.name?.trim() || 'Matchday',
         predicted_total_goals: p.predicted_total_goals,
         actual_total_goals: md.actual_total_goals,
         points: totalPoints,
         ft_points: ftPoints,
+        ht_goals_points: p.ht_goals_points ?? null,
+        corners_points: p.corners_points ?? null,
+        ht_corners_points: p.ht_corners_points ?? null,
         isExact,
       });
     });
     rows.sort((a, b) => (b.match_date > a.match_date ? 1 : -1));
-    setPredictions(rows); setTotalPoints(total); setThisWeekPoints(week); setExactCount(exact); setMatchdaysPlayed(rows.length);
+    setPredictions(rows);
+    setTotalPoints(total);
+    setThisWeekPoints(week);
 
     let streak = 0, max = 0;
     const pointsByMatchDay = new Map<string, number>();
@@ -228,16 +247,32 @@ export default function MyPredictionsTab() {
       pointsByMatchDay.set(p.match_day_id, totalPoints);
     });
     sortedMd.map((id) => pointsByMatchDay.get(id) ?? 0).forEach((p) => { if (p > 0) { streak += 1; max = Math.max(max, streak); } else streak = 0; });
-    setBestStreak(max);
 
-    const badges: BadgeType[] = [];
-    if (list.length >= 1) badges.push('first_prediction');
-    if (exact >= 1) badges.push('exact_prediction');
-    if (max >= 3) badges.push('streak_3');
-    if (max >= 5) badges.push('streak_5');
-    if (max >= 10) badges.push('streak_10');
-    if (rank === 1) badges.push('top_weekly', 'top_monthly', 'top_season');
-      setEarnedBadges(badges);
+        let badges: BadgeType[] = [];
+    try {
+      const { data: userBadges, error: badgeErr } = await supabase
+        .from('user_badges')
+        .select('badge_id, badges:badge_id (slug)')
+        .eq('user_id', user.id);
+      if (!badgeErr && userBadges) {
+        badges = userBadges
+          .map((row: any) => row.badges?.slug)
+          .filter(Boolean);
+      }
+    } catch (err) {
+      console.warn('Badge fetch error (MyPredictions):', err);
+    }
+
+    if (badges.length === 0) {
+      if (list.length >= 1) badges.push('first_prediction');
+      if (exact >= 1) badges.push('exact_prediction');
+      if (max >= 3) badges.push('streak_3');
+      if (max >= 5) badges.push('streak_5');
+      if (max >= 10) badges.push('streak_10');
+      if (rank === 1) badges.push('top_weekly', 'top_monthly', 'top_season');
+    }
+
+    setEarnedBadges(badges);
       setLoading(false);
     } catch (err) {
       console.error('MyPredictionsTab fetch error:', err);
@@ -248,22 +283,54 @@ export default function MyPredictionsTab() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const completed = useMemo(() => predictions.filter((p) => p.actual_total_goals != null), [predictions]);
-  const close = useMemo(() => completed.filter((p) => (p.points ?? 0) > 0 && (p.points ?? 0) < 10).length, [completed]);
-  const miss = useMemo(() => completed.filter((p) => (p.points ?? 0) <= 0).length, [completed]);
-  const accuracy = matchdaysPlayed ? Math.round((exactCount / matchdaysPlayed) * 100) : 0;
-  const exactRate = completed.length ? Math.round((exactCount / completed.length) * 100) : 0;
-  const closeRate = completed.length ? Math.round((close / completed.length) * 100) : 0;
-  const missRate = completed.length ? Math.round((miss / completed.length) * 100) : 0;
+  const completedSorted = useMemo(
+    () => [...completed].sort((a, b) => (a.match_date > b.match_date ? -1 : 1)),
+    [completed]
+  );
+  const totalAccuracy = useMemo(() => calcAccuracyPoints(completed, 'ft_points') ?? 0, [completed]);
+  const isPaid = profile?.account_type === 'paid' || profile?.subscription_status === 'active';
+  const last3Accuracy = useMemo(() => {
+    const slice = completedSorted.slice(0, 3);
+    return calcAccuracyPoints(slice, 'ft_points') ?? 0;
+  }, [completedSorted]);
+  const thisMonthAccuracy = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const rows = completed.filter((p) => {
+      const d = new Date(p.match_date);
+      return d >= start && d <= end;
+    });
+    return calcAccuracyPoints(rows, 'ft_points') ?? 0;
+  }, [completed]);
+  const lastWeekAccuracy = useMemo(() => {
+    const now = new Date();
+    const thisWeekStart = weekStart(now);
+    const lastWeekStart = new Date(thisWeekStart);
+    lastWeekStart.setDate(thisWeekStart.getDate() - 7);
+    const lastWeekEnd = new Date(thisWeekStart);
+    lastWeekEnd.setDate(thisWeekStart.getDate() - 1);
+    const rows = completed.filter((p) => {
+      const d = new Date(p.match_date);
+      return d >= lastWeekStart && d <= lastWeekEnd;
+    });
+    return calcAccuracyPoints(rows, 'ft_points') ?? 0;
+  }, [completed]);
+  const totalGoalAccuracy = totalAccuracy;
+  const htGoalAccuracy = useMemo(() => calcAccuracyPoints(completed, 'ht_goals_points'), [completed]);
+  const ftCornerAccuracy = useMemo(() => calcAccuracyPoints(completed, 'corners_points'), [completed]);
+  const htCornerAccuracy = useMemo(() => calcAccuracyPoints(completed, 'ht_corners_points'), [completed]);
   const avg = completed.length ? (completed.reduce((a, b) => a + (b.points ?? 0), 0) / completed.length).toFixed(1) : '0.0';
   const best = useMemo(() => completed.length ? [...completed].sort((a, b) => (b.points ?? 0) - (a.points ?? 0))[0] : null, [completed]);
   const worst = useMemo(() => completed.length ? [...completed].sort((a, b) => (a.points ?? 0) - (b.points ?? 0))[0] : null, [completed]);
 
   const chartData = useMemo(() => [...predictions].sort((a, b) => (a.match_date > b.match_date ? 1 : -1)).slice(-12).map((p) => ({ label: p.matchdayLabel, pts: p.points ?? 0 })), [predictions]);
   const history = useMemo(() => historyFilter === 'exact' ? predictions.filter((p) => p.isExact) : historyFilter === 'last5' ? predictions.slice(0, 5) : predictions, [historyFilter, predictions]);
-  const streakProgress = Math.min(100, bestStreak * 12);
-  const animatedAccuracy = useAnimatedNumber(accuracy, 900);
-  const animatedStreakProgress = useAnimatedNumber(streakProgress, 900);
-  const animatedStreakValue = useAnimatedNumber(bestStreak, 900);
+  const animatedTotalAccuracy = useAnimatedNumber(totalAccuracy, 900);
+  const totalAccuracyDisplay = completed.length ? Math.round(animatedTotalAccuracy) : 0;
+  const totalAccuracyMuted = completed.length === 0;
+  const totalAccuracyColor = totalAccuracyMuted ? 'rgba(148,163,184,0.7)' : '#16a34a';
+  const totalAccuracyTrack = totalAccuracyMuted ? 'rgba(148,163,184,0.2)' : 'rgba(22,163,74,0.18)';
   const pageSize = 5;
   const pages = Math.max(1, Math.ceil(history.length / pageSize));
   const paged = history.slice(page * pageSize, page * pageSize + pageSize);
@@ -310,40 +377,42 @@ export default function MyPredictionsTab() {
         </Grid>
         <Grid item xs={12} md={4}>
           <Card sx={cardSx}><CardContent sx={{ p: 2.2 }}>
-            <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', fontWeight: 700 }}>Season {seasonName || '2025/26'}</Typography>
-            <Typography sx={{ color: '#6b7280', fontSize: '0.72rem' }}>Matchdays played: {matchdaysPlayed} | Rank: #{globalRank ?? '-'}</Typography>
-            <Stack direction="row" justifyContent="space-around" sx={{ mt: 2 }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                  <CircularProgress variant="determinate" value={100} size={72} sx={{ color: 'rgba(255,255,255,0.08)' }} />
-                  <CircularProgress
-                    variant="determinate"
-                    value={animatedAccuracy}
-                    size={72}
-                    sx={{ color: '#22c55e', position: 'absolute', left: 0, '& .MuiCircularProgress-circle': { strokeLinecap: 'round' } }}
-                  />
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Typography sx={{ color: '#fff', fontWeight: 800 }}>{Math.round(animatedAccuracy)}%</Typography>
-                  </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                <CircularProgress
+                  variant="determinate"
+                  value={100}
+                  size={86}
+                  thickness={4}
+                  sx={{ color: totalAccuracyTrack }}
+                />
+                <CircularProgress
+                  variant="determinate"
+                  value={Math.min(100, totalAccuracyDisplay)}
+                  size={86}
+                  thickness={4}
+                  sx={{ color: totalAccuracyColor, position: 'absolute', left: 0 }}
+                />
+                <Box
+                  sx={{
+                    top: 0,
+                    left: 0,
+                    bottom: 0,
+                    right: 0,
+                    position: 'absolute',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography sx={{ color: totalAccuracyMuted ? '#94a3b8' : '#fff', fontWeight: 800, fontSize: '1rem' }}>
+                    {totalAccuracyDisplay}%
+                  </Typography>
                 </Box>
-                <Typography sx={{ color: '#6b7280', fontSize: '0.66rem', fontWeight: 700, mt: 0.8 }}>HIT RATE</Typography>
               </Box>
-              <Box sx={{ textAlign: 'center' }}>
-                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
-                  <CircularProgress variant="determinate" value={100} size={72} sx={{ color: 'rgba(255,255,255,0.08)' }} />
-                  <CircularProgress
-                    variant="determinate"
-                    value={animatedStreakProgress}
-                    size={72}
-                    sx={{ color: '#f59e0b', position: 'absolute', left: 0, '& .MuiCircularProgress-circle': { strokeLinecap: 'round' } }}
-                  />
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Typography sx={{ color: '#fff', fontWeight: 800 }}>{Math.round(animatedStreakValue)}</Typography>
-                  </Box>
-                </Box>
-                <Typography sx={{ color: '#6b7280', fontSize: '0.66rem', fontWeight: 700, mt: 0.8 }}>STREAK</Typography>
-              </Box>
-            </Stack>
+              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '0.82rem', mt: 1 }}>Total Accuracy</Typography>
+              <Typography sx={{ color: '#6b7280', fontSize: '0.7rem' }}>All FT goal predictions</Typography>
+            </Box>
           </CardContent></Card>
         </Grid>
       </Grid>
@@ -366,15 +435,94 @@ export default function MyPredictionsTab() {
       </CardContent></Card>
 
       <Grid container spacing={2} sx={{ mb: 2 }}>
-        {[{ label: 'Matchday Played', value: matchdaysPlayed, icon: <InsightsIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }, { label: 'Exact Hits', value: exactCount, icon: <EmojiEventsIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }, { label: 'Exact Hit Rate', value: `${accuracy}%`, icon: <PercentIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }, { label: 'Consecutive Streak', value: `${bestStreak} Matches`, icon: <WhatshotIcon sx={{ color: '#22c55e', fontSize: '1rem' }} /> }].map((k) => (
-          <Grid item xs={12} sm={6} md={3} key={k.label}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Stack direction="row" justifyContent="space-between"><Typography sx={{ color: '#22c55e', fontSize: '0.75rem', fontWeight: 800 }}>+4%</Typography>{k.icon}</Stack><Typography sx={{ color: '#fff', fontSize: '1.65rem', fontWeight: 800 }}>{k.value}</Typography><Typography sx={{ color: '#9ca3af', fontSize: '0.76rem' }}>{k.label}</Typography></CardContent></Card></Grid>
-        ))}
-      </Grid>
-
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} md={4}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Prediction Breakdown</Typography>{[{ l: 'EXACT HITS', c: exactCount, r: exactRate, col: '#22c55e' }, { l: 'CLOSE HITS', c: close, r: closeRate, col: '#eab308' }, { l: 'MISSES', c: miss, r: missRate, col: '#ef4444' }].map((r) => <Box key={r.l} sx={{ mb: 1 }}><Stack direction="row" justifyContent="space-between"><Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>{r.l}</Typography><Typography sx={{ color: '#d1d5db', fontSize: '0.72rem' }}>{r.c} ({r.r}%)</Typography></Stack><LinearProgress variant="determinate" value={r.r} sx={{ height: 6, borderRadius: 999, mt: 0.4, backgroundColor: 'rgba(255,255,255,0.07)', '& .MuiLinearProgress-bar': { backgroundColor: r.col } }} /></Box>)}</CardContent></Card></Grid>
-        <Grid item xs={12} md={4}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Outcome Accuracy</Typography>{[{ l: 'EXACT ACCURACY', v: exactRate, c: '#22c55e' }, { l: 'CLOSE ACCURACY', v: closeRate, c: '#eab308' }, { l: 'MISS ACCURACY', v: missRate, c: '#3b82f6' }].map((r) => <Box key={r.l} sx={{ mb: 1.1 }}><Stack direction="row" justifyContent="space-between"><Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>{r.l}</Typography><Typography sx={{ color: '#d1d5db', fontSize: '0.72rem' }}>{r.v}%</Typography></Stack><LinearProgress variant="determinate" value={r.v} sx={{ height: 6, borderRadius: 999, mt: 0.4, backgroundColor: 'rgba(255,255,255,0.07)', '& .MuiLinearProgress-bar': { backgroundColor: r.c } }} /></Box>)}</CardContent></Card></Grid>
-        <Grid item xs={12} md={4}><Card sx={cardSx}><CardContent sx={{ p: 2 }}><Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Performance Highlights</Typography><Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>Average Score</Typography><Typography sx={{ color: '#fff', fontSize: '1.4rem', fontWeight: 800 }}>{avg}</Typography><Box sx={{ p: 1, borderRadius: 1.5, mt: 1, backgroundColor: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.35)' }}><Typography sx={{ color: '#6b7280', fontSize: '0.66rem' }}>BEST MATCHDAY</Typography><Typography sx={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 700 }}>{best ? `${best.matchdayLabel} (${best.points ?? 0} pts)` : '-'}</Typography></Box><Box sx={{ p: 1, borderRadius: 1.5, mt: 1, backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)' }}><Typography sx={{ color: '#6b7280', fontSize: '0.66rem' }}>WORST MATCHDAY</Typography><Typography sx={{ color: '#fca5a5', fontSize: '0.8rem', fontWeight: 700 }}>{worst ? `${worst.matchdayLabel} (${worst.points ?? 0} pts)` : '-'}</Typography></Box></CardContent></Card></Grid>
+        <Grid item xs={12} md={4}>
+          <Card sx={cardSx}>
+            <CardContent sx={{ p: 2 }}>
+              <Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Recent Accuracy</Typography>
+              {[
+                { label: 'Last 3 Predictions', value: `${last3Accuracy}%` },
+                { label: 'This Month', value: `${thisMonthAccuracy}%` },
+                { label: 'Last Week', value: `${lastWeekAccuracy}%` },
+              ].map((row) => (
+                <Stack key={row.label} direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>{row.label}</Typography>
+                  <Typography sx={{ color: '#d1d5db', fontSize: '0.72rem', fontWeight: 700 }}>{row.value}</Typography>
+                </Stack>
+              ))}
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Card sx={cardSx}>
+            <CardContent sx={{ p: 2 }}>
+              <Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Game Type Accuracy</Typography>
+              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>Total Goals Accuracy</Typography>
+                <Typography sx={{ color: '#d1d5db', fontSize: '0.72rem', fontWeight: 700 }}>{totalGoalAccuracy}%</Typography>
+              </Stack>
+              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>HT Goals Accuracy</Typography>
+                {isPaid ? (
+                  <Typography sx={{ color: '#d1d5db', fontSize: '0.72rem', fontWeight: 700 }}>
+                    {htGoalAccuracy == null ? '—' : `${htGoalAccuracy}%`}
+                  </Typography>
+                ) : (
+                  <Stack direction="row" spacing={0.6} alignItems="center">
+                    <LockIcon sx={{ color: '#fbbf24', fontSize: '0.9rem' }} />
+                    <Typography sx={{ color: '#fbbf24', fontSize: '0.7rem', fontWeight: 700 }}>Pro only</Typography>
+                  </Stack>
+                )}
+              </Stack>
+              <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>FT Corners Accuracy</Typography>
+                {isPaid ? (
+                  <Typography sx={{ color: '#d1d5db', fontSize: '0.72rem', fontWeight: 700 }}>
+                    {ftCornerAccuracy == null ? '—' : `${ftCornerAccuracy}%`}
+                  </Typography>
+                ) : (
+                  <Stack direction="row" spacing={0.6} alignItems="center">
+                    <LockIcon sx={{ color: '#fbbf24', fontSize: '0.9rem' }} />
+                    <Typography sx={{ color: '#fbbf24', fontSize: '0.7rem', fontWeight: 700 }}>Pro only</Typography>
+                  </Stack>
+                )}
+              </Stack>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>HT Corners Accuracy</Typography>
+                {isPaid ? (
+                  <Typography sx={{ color: '#d1d5db', fontSize: '0.72rem', fontWeight: 700 }}>
+                    {htCornerAccuracy == null ? '—' : `${htCornerAccuracy}%`}
+                  </Typography>
+                ) : (
+                  <Stack direction="row" spacing={0.6} alignItems="center">
+                    <LockIcon sx={{ color: '#fbbf24', fontSize: '0.9rem' }} />
+                    <Typography sx={{ color: '#fbbf24', fontSize: '0.7rem', fontWeight: 700 }}>Pro only</Typography>
+                  </Stack>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Card sx={cardSx}>
+            <CardContent sx={{ p: 2 }}>
+              <Typography sx={{ color: '#fff', fontWeight: 800, mb: 1 }}>Performance Highlights</Typography>
+              <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>Average Score</Typography>
+              <Typography sx={{ color: '#fff', fontSize: '1.4rem', fontWeight: 800 }}>{avg}</Typography>
+              <Box sx={{ p: 1, borderRadius: 1.5, mt: 1, backgroundColor: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.35)' }}>
+                <Typography sx={{ color: '#6b7280', fontSize: '0.66rem' }}>BEST MATCHDAY</Typography>
+                <Typography sx={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 700 }}>
+                  {best ? `${best.matchdayLabel} (${best.points ?? 0} pts)` : '-'}
+                </Typography>
+              </Box>
+              <Box sx={{ p: 1, borderRadius: 1.5, mt: 1, backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)' }}>
+                <Typography sx={{ color: '#6b7280', fontSize: '0.66rem' }}>WORST MATCHDAY</Typography>
+                <Typography sx={{ color: '#fca5a5', fontSize: '0.8rem', fontWeight: 700 }}>
+                  {worst ? `${worst.matchdayLabel} (${worst.points ?? 0} pts)` : '-'}
+                </Typography>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
 
       <Card sx={{ ...cardSx, mb: 2 }}><CardContent sx={{ p: 2 }}>
@@ -433,8 +581,71 @@ export default function MyPredictionsTab() {
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
           <Typography sx={{ color: '#fff', fontWeight: 800 }}>Achievement Badges</Typography>
         </Stack>
-        <Grid container spacing={1.2}>{allBadgeTypes.map((b) => { const unlocked = earnedBadges.includes(b); const info = BADGE_INFO[b]; return <Grid item xs={6} sm={4} md={3} key={b}><Box sx={{ p: 1.1, borderRadius: 2, border: unlocked ? '1px solid rgba(22,163,74,0.42)' : '1px solid rgba(255,255,255,0.08)', backgroundColor: unlocked ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.02)', opacity: unlocked ? 1 : 0.45 }}><Stack direction="row" spacing={1} alignItems="center"><Box sx={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: unlocked ? 'rgba(22,163,74,0.22)' : 'rgba(107,114,128,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{unlocked ? <EmojiEventsIcon sx={{ color: '#4ade80', fontSize: '1rem' }} /> : <LockIcon sx={{ color: '#6b7280', fontSize: '0.95rem' }} />}</Box><Typography sx={{ color: '#fff', fontSize: '0.74rem', fontWeight: 700 }}>{info?.label ?? b}</Typography></Stack></Box></Grid>; })}</Grid>
+        <Grid container spacing={1.2}>
+          {allBadges.map((badge) => {
+            const unlocked = earnedBadges.includes(badge.slug);
+            const lockedPaidOnly = badge.is_paid_only && !isPaid;
+            const showLocked = !unlocked;
+            const subtitle = lockedPaidOnly ? 'Upgrade to Pro to unlock' : getBadgeDescription(badge.slug);
+            return (
+              <Grid item xs={6} sm={4} md={3} key={badge.slug}>
+                <Box
+                  sx={{
+                    p: 1.1,
+                    borderRadius: 2,
+                    border: unlocked ? '1px solid rgba(22,163,74,0.42)' : '1px solid rgba(255,255,255,0.08)',
+                    backgroundColor: unlocked ? 'rgba(22,163,74,0.08)' : 'rgba(255,255,255,0.02)',
+                    opacity: unlocked ? 1 : 0.45,
+                  }}
+                  title={subtitle}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Box
+                      sx={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: '50%',
+                        backgroundColor: unlocked ? 'rgba(22,163,74,0.22)' : 'rgba(107,114,128,0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1rem',
+                      }}
+                    >
+                      {showLocked ? <LockIcon sx={{ color: '#6b7280', fontSize: '0.95rem' }} /> : getBadgeIcon(badge.slug)}
+                    </Box>
+                    <Box>
+                      <Typography sx={{ color: '#fff', fontSize: '0.74rem', fontWeight: 700 }}>
+                        {getBadgeLabel(badge.slug)}
+                      </Typography>
+                      <Typography sx={{ color: '#6b7280', fontSize: '0.63rem' }}>
+                        {lockedPaidOnly ? 'Pro only' : badge.category.toUpperCase()}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Box>
+              </Grid>
+            );
+          })}
+        </Grid>
       </CardContent></Card>
     </Box>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

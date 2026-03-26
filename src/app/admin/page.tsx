@@ -79,6 +79,7 @@ export default function AdminPage() {
     type: 'weekly' as 'weekly' | 'monthly' | 'seasonal' | 'player',
     period: '',
     points_threshold: '',
+    prize_matchday_id: '',
     winner_user_id: '',
     suggested_name: '',
     prize_description: '',
@@ -446,7 +447,7 @@ export default function AdminPage() {
     if (tabValue === 1) fetchCompetitionsList();
   }, [tabValue, fetchCompetitionsList]);
   useEffect(() => {
-    if (tabValue === 2) fetchMatchDaysList();
+    if (tabValue === 2 || tabValue === 6) fetchMatchDaysList();
   }, [tabValue, fetchMatchDaysList]);
   useEffect(() => {
     if (tabValue === 3) {
@@ -2478,6 +2479,7 @@ export default function AdminPage() {
                         type: nextType,
                         period: nextType === 'player' ? '' : p.period,
                         points_threshold: nextType === 'player' ? p.points_threshold : '',
+                        prize_matchday_id: nextType === 'player' ? p.prize_matchday_id : '',
                         winner_user_id: '',
                         suggested_name: '',
                       }));
@@ -2581,6 +2583,42 @@ export default function AdminPage() {
                     {suggestingWinner ? 'Loading..' : 'Suggest Winner'}
                   </Button>
                 </Stack>
+                {isPlayerPrize && (
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'flex-start', sm: 'flex-end' }}>
+                    <TextField
+                      size="small"
+                      select
+                      label="Match Day (optional)"
+                      value={prizeForm.prize_matchday_id}
+                      onChange={(e) => {
+                        setPrizeForm((p) => ({ ...p, prize_matchday_id: e.target.value }));
+                      }}
+                      sx={{
+                        minWidth: 260,
+                        input: { color: '#fff' },
+                        label: { color: '#06d6d0', fontWeight: 600 },
+                        '& .MuiOutlinedInput-root': { borderColor: 'rgba(6, 182, 212, 0.3)' },
+                        '& .MuiOutlinedInput-root:hover': { borderColor: 'rgba(6, 182, 212, 0.5)' },
+                      }}
+                      SelectProps={{ MenuProps: selectMenuProps }}
+                    >
+                      <MenuItem value="" sx={selectMenuItemSx}>No specific match day</MenuItem>
+                      {matchDaysList.map((md) => {
+                        const label = md.name?.trim()
+                          ? `${md.name} · ${new Date(md.match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          : new Date(md.match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        return (
+                          <MenuItem key={md.id} value={md.id} sx={selectMenuItemSx}>
+                            {label}{md.season_name ? ` (${md.season_name})` : ''}
+                          </MenuItem>
+                        );
+                      })}
+                    </TextField>
+                    <Typography sx={{ color: '#94a3b8', fontSize: '0.82rem', mb: { xs: 0, sm: 0.6 } }}>
+                      Optional: tie this player prize to a specific match day.
+                    </Typography>
+                  </Stack>
+                )}
                 {prizeForm.suggested_name && (
                   <Box sx={{ p: 2.5, backgroundColor: 'rgba(6, 182, 212, 0.15)', borderRadius: 2, border: '1px solid rgba(6, 182, 212, 0.4)' }}>
                     <Typography sx={{ color: '#06b6d4', fontWeight: 700, fontSize: '0.95rem' }}>
@@ -2697,6 +2735,7 @@ export default function AdminPage() {
                             type: prizeForm.type,
                             period: isPlayerPrize ? '' : prizeForm.period.trim(),
                             points_threshold: isPlayerPrize ? prizeForm.points_threshold.trim() : undefined,
+                            prize_matchday_id: isPlayerPrize ? (prizeForm.prize_matchday_id || null) : null,
                             winner_user_id: null,
                             prize_description: prizeForm.prize_description || null,
                           }),
@@ -2708,6 +2747,7 @@ export default function AdminPage() {
                             ...p,
                             winner_user_id: '',
                             suggested_name: '',
+                            prize_matchday_id: '',
                           }));
                           setPlayerCandidates([]);
                           fetchPrizesList();
@@ -2867,7 +2907,9 @@ export default function AdminPage() {
                           <TableCell>{(p as Prize & { winner_display_name?: string | null }).winner_display_name || (p.winner_user_id ? (winnerNames[p.winner_user_id] || (p.winner_user_id.slice(0, 8) + '...')) : '—')}</TableCell>
                           <TableCell>
                             {p.type === 'player'
-                              ? ((p as Prize & { winner_match_day_label?: string | null }).winner_match_day_label || '—')
+                              ? ((p as Prize & { winner_match_day_label?: string | null; prize_match_day_label?: string | null }).winner_match_day_label
+                                || (p as Prize & { prize_match_day_label?: string | null }).prize_match_day_label
+                                || '—')
                               : '—'}
                           </TableCell>
                           <TableCell sx={{ maxWidth: 200, fontSize: '0.9rem' }}>{p.prize_description || ''}</TableCell>

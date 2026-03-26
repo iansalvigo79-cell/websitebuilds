@@ -1,110 +1,125 @@
 ﻿"use client";
 
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Grid,
-  LinearProgress,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Box, Button, Card, CardContent, Grid, Stack, Typography } from '@mui/material';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
-import CloseIcon from '@mui/icons-material/Close';
 import ModernLoader from '@/components/ui/ModernLoader';
 
-interface PrizeWithProfile {
+interface AvailablePrize {
   id: string;
-  type: 'weekly' | 'monthly' | 'seasonal' | string;
-  period: string;
-  winner_user_id: string;
+  type: string;
+  period: string | null;
   prize_description: string | null;
-  status: 'pending' | 'awarded' | string;
+  status: string;
   created_at: string;
-  profiles?: { display_name: string | null } | null;
-  winner_points?: number | null;
-  winner_match_day_label?: string | null;
+  prize_matchday_id?: string | null;
+  prize_matchday_label?: string | null;
   prize_value?: number | null;
+  prize_value_display?: string | null;
+  prize_value_label?: string | null;
+  season_name?: string | null;
 }
 
-interface LeaderboardEntry {
-  user_id: string;
-  display_name: string;
-  total_points: number;
-  predictions_count: number;
-  rank: number;
+interface MyWin {
+  id: string;
+  prize_id: string;
+  type: string | null;
+  period: string | null;
+  prize_description: string | null;
+  prize_value?: number | null;
+  prize_value_display?: string | null;
+  prize_value_label?: string | null;
+  points_achieved?: number | null;
+  match_day_id?: string | null;
+  match_day_label?: string | null;
+  earned_at?: string | null;
+  created_at?: string | null;
+  season_name?: string | null;
 }
 
-interface ActivePrizeContext {
-  participants: number;
-  leader: LeaderboardEntry | null;
-  currentUser: LeaderboardEntry | null;
-  gapToLeader: number | null;
-  progressToLeaderPct: number | null;
-  periodLabel: string;
-  countdownTarget: string | null;
+const badgeStyles: Record<string, { background: string; color: string; border: string }> = {
+  player: {
+    background: 'rgba(139,92,246,0.15)',
+    color: '#a78bfa',
+    border: '1px solid rgba(139,92,246,0.25)',
+  },
+  weekly: {
+    background: 'rgba(59,130,246,0.15)',
+    color: '#60a5fa',
+    border: '1px solid rgba(59,130,246,0.25)',
+  },
+  monthly: {
+    background: 'rgba(251,191,36,0.12)',
+    color: '#fbbf24',
+    border: '1px solid rgba(251,191,36,0.2)',
+  },
+  seasonal: {
+    background: 'rgba(16,185,129,0.12)',
+    color: '#34d399',
+    border: '1px solid rgba(16,185,129,0.2)',
+  },
+};
+
+const statusLabels: Record<string, string> = {
+  player: 'Open - ongoing',
+  weekly: 'Resets every Monday',
+  monthly: 'Resets 1st of each month',
+  seasonal: 'Current season active',
+};
+
+const prizeOrder: Record<string, number> = {
+  player: 0,
+  weekly: 1,
+  monthly: 2,
+  seasonal: 3,
+};
+
+function formatMonthLabel(period: string | null) {
+  if (!period) return 'Monthly prize';
+  const match = period.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return period;
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const date = new Date(Date.UTC(year, monthIndex, 1));
+  if (Number.isNaN(date.getTime())) return period;
+  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
-interface PrizeSummary {
-  totalPrizes: number;
-  totalWinners: number;
-  totalValue: number;
-  averageValue: number;
-  currentMonthPrizes: number;
-  previousMonthPrizes: number;
-  currentMonthWinners: number;
-  previousMonthWinners: number;
-  currentMonthAverageValue: number;
-  previousMonthAverageValue: number;
+function formatAwardedDate(dateStr?: string | null) {
+  if (!dateStr) return '--';
+  const dt = new Date(dateStr);
+  if (Number.isNaN(dt.getTime())) return '--';
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const shellSx = { backgroundColor: '#161a23', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' };
-
-function formatCountdown(target: Date) {
-  const now = Date.now();
-  const diff = Math.max(0, target.getTime() - now);
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  const s = Math.floor((diff % 60000) / 1000);
-  return `${String(h).padStart(2, '0')} : ${String(m).padStart(2, '0')} : ${String(s).padStart(2, '0')}`;
+function prizeTitle(type: string | null) {
+  if (!type) return 'Prize';
+  return `${type.charAt(0).toUpperCase()}${type.slice(1)} prize`;
 }
 
-function formatCurrency(value: number, compact = false) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    notation: compact ? 'compact' : 'standard',
-    maximumFractionDigits: compact ? 1 : 0,
-  }).format(value);
+function prizeSubtitle(prize: AvailablePrize) {
+  if (prize.type === 'weekly') return prize.period ? `Week of ${prize.period}` : 'Weekly prize';
+  if (prize.type === 'monthly') return formatMonthLabel(prize.period);
+  if (prize.type === 'seasonal') {
+    return prize.season_name ? `Season ${prize.season_name}` : 'Seasonal prize';
+  }
+  if (prize.type === 'player') {
+    return prize.prize_matchday_label ? `Matchday ${prize.prize_matchday_label}` : 'Ongoing player target';
+  }
+  return prize.period || 'Prize details';
 }
 
-function countDeltaLabel(current: number, previous: number) {
-  const delta = current - previous;
-  if (delta === 0) return 'No change vs last month';
-  return `${delta > 0 ? '+' : ''}${delta} vs last month`;
-}
-
-function avgValueDeltaLabel(current: number, previous: number) {
-  if (previous <= 0) return current > 0 ? 'New average this month' : 'No value yet';
-  const pct = ((current - previous) / previous) * 100;
-  return `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% vs last month`;
+function playerTarget(prize: AvailablePrize) {
+  if (prize.type !== 'player') return null;
+  const parsed = prize.period ? parseInt(prize.period, 10) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export default function PrizesTab() {
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [activePrize, setActivePrize] = useState<PrizeWithProfile | null>(null);
-  const [recentWinners, setRecentWinners] = useState<PrizeWithProfile[]>([]);
-  const [userPrize, setUserPrize] = useState<PrizeWithProfile | null>(null);
-  const [summary, setSummary] = useState<PrizeSummary | null>(null);
-  const [activeContext, setActiveContext] = useState<ActivePrizeContext | null>(null);
-  const [showBanner, setShowBanner] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'monthly' | 'weekly' | 'seasonal' | 'player'>('all');
-  const [showAllWinners, setShowAllWinners] = useState(false);
-  const [countdown, setCountdown] = useState('-- : -- : --');
+  const [isLoading, setIsLoading] = useState(true);
+  const [availablePrizes, setAvailablePrizes] = useState<AvailablePrize[]>([]);
+  const [myWins, setMyWins] = useState<MyWin[]>([]);
+  const [activeTab, setActiveTab] = useState<'available' | 'wins'>('available');
   const [isPaidUser, setIsPaidUser] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
 
@@ -112,6 +127,7 @@ export default function PrizesTab() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
+        setIsLoading(false);
         return;
       }
       const { data: { user } } = await supabase.auth.getUser();
@@ -125,20 +141,18 @@ export default function PrizesTab() {
         setIsPaidUser(active);
         setSubscriptionStatus(profile?.subscription_status ?? null);
       }
+
       const res = await fetch('/api/prizes/dashboard', {
         headers: { Authorization: `Bearer ${session.access_token}` },
         cache: 'no-store',
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setActivePrize(data.activePrize ?? null);
-        setRecentWinners(Array.isArray(data.recentWinners) ? data.recentWinners : []);
-        setUserPrize(data.userPrize ?? null);
-        setSummary(data.summary ?? null);
-        setActiveContext(data.activeContext ?? null);
+        setAvailablePrizes(Array.isArray(data.availablePrizes) ? data.availablePrizes : []);
+        setMyWins(Array.isArray(data.myWins) ? data.myWins : []);
       }
     } finally {
-      setIsInitialLoading(false);
+      setIsLoading(false);
     }
   }, []);
 
@@ -146,449 +160,440 @@ export default function PrizesTab() {
     fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      fetchData();
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, [fetchData]);
+  const sortedAvailable = useMemo(() => {
+    return [...availablePrizes].sort((a, b) => {
+      const orderA = prizeOrder[a.type] ?? 99;
+      const orderB = prizeOrder[b.type] ?? 99;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [availablePrizes]);
 
-  useEffect(() => {
-    if (!activeContext?.countdownTarget) {
-      setCountdown('-- : -- : --');
-      return;
-    }
-    const end = new Date(activeContext.countdownTarget);
-    if (Number.isNaN(end.getTime())) {
-      setCountdown('-- : -- : --');
-      return;
-    }
-    const tick = () => setCountdown(formatCountdown(end));
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [activeContext?.countdownTarget]);
-
-  const filteredWinners = useMemo(
-    () => (filter === 'all' ? recentWinners : recentWinners.filter((w) => w.type === filter)),
-    [filter, recentWinners]
-  );
-
-  const winnerName = (prize: PrizeWithProfile | null | undefined) => {
-    const name = prize?.profiles?.display_name?.trim();
-    return name && name.length > 0 ? name : null;
-  };
-
-  const leaderName = activeContext?.leader?.display_name || winnerName(activePrize) || winnerName(recentWinners[0]) || 'No leader yet';
-  const hasLeader = leaderName !== 'No leader yet';
-  const leaderPoints = activeContext?.leader?.total_points ?? activePrize?.winner_points ?? null;
-  const myRank = activeContext?.currentUser?.rank ?? null;
-  const myPoints = activeContext?.currentUser?.total_points ?? null;
-  const gapToLeader = activeContext?.gapToLeader ?? null;
-  const progressToLeader = activeContext?.progressToLeaderPct ?? 0;
-  const participants = activeContext?.participants ?? 0;
-  const periodLabel = activeContext?.periodLabel || activePrize?.period || 'N/A';
-  const winnersToRender = filter === 'all' ? recentWinners : filteredWinners;
-  const visibleWinners = showAllWinners ? winnersToRender : winnersToRender.slice(0, 6);
-  const prizeHeadline = activePrize?.prize_description?.trim() || 'Prize details will appear after admin creates a contest.';
-  const liveLabel = !activePrize
-    ? 'NO ACTIVE CONTEST'
-    : activePrize.status === 'pending'
-      ? 'LIVE CONTEST'
-      : 'LATEST RESULT';
-
-  const currentMonthValue = (summary?.currentMonthAverageValue ?? 0) * (summary?.currentMonthPrizes ?? 0);
-  const previousMonthValue = (summary?.previousMonthAverageValue ?? 0) * (summary?.previousMonthPrizes ?? 0);
-  const valueDelta = currentMonthValue - previousMonthValue;
-
-  const stats = useMemo(() => ([
-    {
-      label: 'Total Prizes',
-      value: String(summary?.totalPrizes ?? 0),
-      trend: countDeltaLabel(summary?.currentMonthPrizes ?? 0, summary?.previousMonthPrizes ?? 0),
-    },
-    {
-      label: 'Total Value',
-      value: formatCurrency(summary?.totalValue ?? 0, true),
-      trend: `${valueDelta >= 0 ? '+' : '-'}${formatCurrency(Math.abs(valueDelta), true)} vs last month`,
-    },
-    {
-      label: 'Total Winners',
-      value: String(summary?.totalWinners ?? 0),
-      trend: countDeltaLabel(summary?.currentMonthWinners ?? 0, summary?.previousMonthWinners ?? 0),
-    },
-    {
-      label: 'Avg Prize Value',
-      value: formatCurrency(summary?.averageValue ?? 0, true),
-      trend: avgValueDeltaLabel(summary?.currentMonthAverageValue ?? 0, summary?.previousMonthAverageValue ?? 0),
-    },
-  ]), [
-    summary?.totalPrizes,
-    summary?.currentMonthPrizes,
-    summary?.previousMonthPrizes,
-    summary?.totalValue,
-    summary?.totalWinners,
-    summary?.currentMonthWinners,
-    summary?.previousMonthWinners,
-    summary?.averageValue,
-    summary?.currentMonthAverageValue,
-    summary?.previousMonthAverageValue,
-    valueDelta,
-  ]);
-
-  if (isInitialLoading) {
+  if (isLoading) {
     return (
       <ModernLoader
-        label="Loading Prize Data"
-        sublabel="Syncing latest results from database..."
+        label="Loading Prizes"
+        sublabel="Fetching the latest prize data..."
         minHeight="55vh"
       />
     );
   }
 
   return (
-    <Box
-      sx={{
-        '& .MuiButton-root': {
-          fontSize: '0.74rem',
-        },
-        '& .MuiChip-label': {
-          fontSize: '0.66rem',
-        },
-        '& .ga-label': {
-          color: '#6b7280',
-          fontSize: '0.64rem',
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          textTransform: 'uppercase',
-        },
-      }}
-    >
-      {userPrize && showBanner && (
-        <Card sx={{ ...shellSx, mb: 2, background: 'linear-gradient(135deg, #16a34a, #15803d)', border: 'none' }}>
-          <CardContent sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-              <Stack direction="row" spacing={1.2} alignItems="center">
-                <Box sx={{ width: 42, height: 42, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <EmojiEventsIcon sx={{ color: '#fff' }} />
-                </Box>
-                <Box>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Chip
-                      label={userPrize.status.toUpperCase()}
-                      size="small"
-                      sx={{ height: 18, fontSize: '0.62rem', bgcolor: 'rgba(255,255,255,0.22)', color: '#fff', fontWeight: 800 }}
-                    />
-                    <Typography sx={{ color: '#dcfce7', fontSize: '0.78rem', fontWeight: 700 }}>
-                      {userPrize.type.toUpperCase()} | {userPrize.period}
+    <Box>
+      <Box sx={{ mb: 2.5 }}>
+        <Typography sx={{ color: '#fff', fontSize: '1.4rem', fontWeight: 600 }}>Prizes</Typography>
+        <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem' }}>
+          Compete and win rewards for your prediction performance
+        </Typography>
+      </Box>
+
+      <Box sx={{ borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 2, mb: 2 }}>
+        {[
+          { key: 'available', label: 'Available prizes' },
+          { key: 'wins', label: 'My wins' },
+        ].map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <Box
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key as 'available' | 'wins')}
+              sx={{
+                cursor: 'pointer',
+                pb: 1.2,
+                color: isActive ? '#4ade80' : 'rgba(255,255,255,0.4)',
+                borderBottom: isActive ? '2px solid #4ade80' : '2px solid transparent',
+                marginBottom: '-1px',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              {tab.label}
+            </Box>
+          );
+        })}
+      </Box>
+
+      {activeTab === 'available' && (
+        <Box>
+          {!isPaidUser && (
+            <Card
+              sx={{
+                backgroundColor: '#1a1000',
+                border: '1px solid rgba(251,191,36,0.3)',
+                borderRadius: '12px',
+                mb: 2,
+              }}
+            >
+              <CardContent sx={{ p: 2 }}>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={2}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                >
+                  <Box>
+                    <Typography sx={{ color: '#fbbf24', fontSize: '13px', fontWeight: 500 }}>
+                      Upgrade to Pro to compete for prizes
                     </Typography>
-                  </Stack>
-                   <Typography sx={{ color: '#dcfce7', fontSize: '0.78rem' }}>
-                     Created {new Date(userPrize.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.
-                   </Typography>
-                </Box>
-              </Stack>
-              <Stack direction="row" spacing={1}>
-                <Button onClick={() => setShowBanner(false)} sx={{ minWidth: 0, p: 0.7, color: '#fff' }}>
-                  <CloseIcon />
-                </Button>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
-
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.2 }}>
-        <Typography sx={{ color: '#fff', fontSize: '1.25rem', fontWeight: 900 }}>Active Prizes</Typography>
-        <Chip
-          label={liveLabel}
-          size="small"
-          sx={{
-            bgcolor: activePrize ? 'rgba(22,163,74,0.16)' : 'rgba(148,163,184,0.16)',
-            color: activePrize ? '#4ade80' : '#cbd5e1',
-            fontWeight: 700,
-          }}
-        />
-      </Stack>
-
-      {!isPaidUser && (
-        <Card sx={{ ...shellSx, mb: 2, borderColor: 'rgba(251,191,36,0.35)' }}>
-          <CardContent sx={{ p: 2 }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between">
-              <Box>
-                <Typography sx={{ color: '#fbbf24', fontWeight: 800, fontSize: '0.9rem' }}>
-                  Upgrade to compete for prizes and unlock all leaderboards.
-                </Typography>
-                <Typography sx={{ color: '#fde68a', fontSize: '0.75rem' }}>
-                  Your account is currently {subscriptionStatus || 'free'}.
-                </Typography>
-              </Box>
-              <Button
-                size="small"
-                href="/subscription"
-                sx={{
-                  background: 'linear-gradient(135deg, #fbbf24, #f59e0b)',
-                  color: '#0f172a',
-                  fontWeight: 800,
-                  textTransform: 'none',
-                  px: 2,
-                }}
-              >
-                Upgrade
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
-
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} lg={8}>
-          <Card sx={shellSx}>
-            <CardContent sx={{ p: 2.2 }}>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <Typography sx={{ color: '#22c55e', fontSize: '0.66rem', fontWeight: 800, letterSpacing: '0.12em' }}>
-                    {(activePrize?.type || 'prize').toUpperCase()} PRIZE | {periodLabel}
-                  </Typography>
-                  <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: { xs: '1.45rem', md: '1.95rem' }, lineHeight: 1.04, mt: 0.8 }}>
-                    {prizeHeadline}
-                  </Typography>
-                  <Typography sx={{ color: '#9ca3af', fontSize: '0.84rem', mt: 1.3, maxWidth: 360 }}>
-                    {activePrize?.status === 'pending'
-                      ? 'Leaderboard values for this prize period are loaded directly from predictions data.'
-                      : activePrize?.status === 'awarded'
-                        ? 'Showing the latest awarded prize period from database records.'
-                        : 'No pending prize exists right now. Ask admin to create a new prize period.'}
-                  </Typography>
-                  <Grid container spacing={2} sx={{ mt: 2 }}>
-                    <Grid item xs={6}>
-                      <Typography className="ga-label">Time remaining</Typography>
-                      <Typography sx={{ color: '#fff', fontSize: '1.45rem', fontWeight: 800 }}>{countdown}</Typography>
-                    </Grid>
-                    <Grid item xs={6}>
-                      <Typography className="ga-label">Participants</Typography>
-                      <Typography sx={{ color: '#fff', fontSize: '1.45rem', fontWeight: 800 }}>{participants.toLocaleString('en-US')}</Typography>
-                    </Grid>
-                  </Grid>
-                </Grid>
-
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#1e2330', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center', height: '100%' }}>
-                    <Box sx={{ width: 90, height: 90, borderRadius: '50%', mx: 'auto', backgroundColor: '#fde68a', border: '3px solid #16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#111827', fontWeight: 900, fontSize: '1.2rem' }}>
-                      {hasLeader ? leaderName.slice(0, 2).toUpperCase() : '--'}
-                    </Box>
-                    <Chip label="#1" size="small" sx={{ mt: 1, bgcolor: 'rgba(22,163,74,0.2)', color: '#4ade80', fontWeight: 800 }} />
-                    <Typography sx={{ color: '#fff', fontSize: '1.65rem', fontWeight: 800, mt: 0.8 }}>{leaderName}</Typography>
-                    <Typography sx={{ color: '#22c55e', fontSize: '1.7rem', fontWeight: 900, mt: 0.2 }}>
-                      {hasLeader && leaderPoints != null ? leaderPoints.toLocaleString('en-US') : '--'}
+                    <Typography sx={{ color: 'rgba(251,191,36,0.5)', fontSize: '12px' }}>
+                      All prizes below are available to paid subscribers only
                     </Typography>
-                    <Typography sx={{ color: '#6b7280', fontSize: '0.67rem' }}>POINTS EARNED</Typography>
                   </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} lg={4}>
-          <Stack spacing={2}>
-            <Card sx={shellSx}>
-              <CardContent sx={{ p: 1.8 }}>
-                <Typography className="ga-label" sx={{ mb: 0.7 }}>Current Leader</Typography>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Box sx={{ width: 32, height: 32, borderRadius: '50%', backgroundColor: '#374151', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e5e7eb', fontSize: '0.72rem' }}>
-                      {hasLeader ? leaderName.slice(0, 2).toUpperCase() : '--'}
-                    </Box>
-                    <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.8rem' }}>{leaderName}</Typography>
-                  </Stack>
-                  <Typography sx={{ color: '#22c55e', fontWeight: 800 }}>
-                    {hasLeader && leaderPoints != null ? leaderPoints.toLocaleString('en-US') : '--'}
-                  </Typography>
+                  <Button
+                    href="/subscription"
+                    sx={{
+                      background: '#fbbf24',
+                      color: '#1a0a00',
+                      textTransform: 'none',
+                      fontWeight: 700,
+                      fontSize: '0.8rem',
+                      px: 2.5,
+                      '&:hover': { background: '#f59e0b' },
+                    }}
+                  >
+                    Upgrade - \u00A35/month
+                  </Button>
                 </Stack>
               </CardContent>
             </Card>
+          )}
 
-            <Card sx={shellSx}>
-              <CardContent sx={{ p: 1.8 }}>
-                <Typography className="ga-label" sx={{ mb: 1 }}>Your Position</Typography>
-                <Grid container spacing={1}>
-                  <Grid item xs={6}>
-                    <Box sx={{ p: 1.2, borderRadius: 1.5, backgroundColor: '#1e2330', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
-                      <Typography sx={{ color: '#fff', fontSize: '1.6rem', fontWeight: 900 }}>{myRank != null ? `#${myRank}` : '--'}</Typography>
-                      <Typography sx={{ color: '#6b7280', fontSize: '0.68rem' }}>RANK</Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Box sx={{ p: 1.2, borderRadius: 1.5, backgroundColor: '#1e2330', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center' }}>
-                      <Typography sx={{ color: '#22c55e', fontSize: '1.6rem', fontWeight: 900 }}>{myPoints != null ? myPoints.toLocaleString('en-US') : '--'}</Typography>
-                      <Typography sx={{ color: '#6b7280', fontSize: '0.68rem' }}>POINTS</Typography>
-                    </Box>
-                  </Grid>
-                </Grid>
-                <Typography sx={{ color: '#6b7280', fontSize: '0.7rem', mt: 1 }}>GAP TO LEADER</Typography>
-                <LinearProgress
-                  variant="determinate"
-                  value={progressToLeader}
-                  sx={{
-                    mt: 0.5,
-                    height: 7,
-                    borderRadius: 999,
-                    backgroundColor: 'rgba(255,255,255,0.08)',
-                    '& .MuiLinearProgress-bar': { backgroundColor: '#16a34a' },
-                  }}
-                />
-                <Typography sx={{ color: '#6b7280', fontSize: '0.62rem', mt: 0.6 }}>
-                  {myRank != null && gapToLeader != null
-                    ? `Gap to leader: ${gapToLeader.toLocaleString('en-US')} points (${progressToLeader}% progress).`
-                    : 'No prediction entry yet for this prize period.'}
+          <Typography
+            sx={{
+              fontSize: '11px',
+              fontWeight: 500,
+              letterSpacing: '1px',
+              color: 'rgba(255,255,255,0.3)',
+              textTransform: 'uppercase',
+              mb: 1.5,
+            }}
+          >
+            Open prizes
+          </Typography>
+
+          {sortedAvailable.length === 0 ? (
+            <Card sx={{ backgroundColor: '#141414', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px' }}>
+              <CardContent sx={{ p: 2.5 }}>
+                <Typography sx={{ color: '#d1d5db', fontWeight: 600 }}>
+                  No active prizes right now. Check back soon.
                 </Typography>
               </CardContent>
             </Card>
-          </Stack>
-        </Grid>
-      </Grid>
+          ) : (
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              {sortedAvailable.map((prize) => {
+                const badge = badgeStyles[prize.type] || badgeStyles.weekly;
+                const isLocked = !isPaidUser;
+                const valueDisplay = prize.prize_value_display || '--';
+                const valueLabel = prize.prize_value_label || prize.prize_description || 'Prize value';
+                const target = playerTarget(prize);
+                const conditionLabel = prize.prize_matchday_label
+                  ? `Matchday ${prize.prize_matchday_label}`
+                  : 'Matchday total';
 
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        {stats.map((s) => (
-          <Grid item xs={12} sm={6} md={3} key={s.label}>
-            <Card sx={shellSx}>
-              <CardContent sx={{ p: 1.6 }}>
-                <Typography sx={{ color: '#fff', fontSize: '1.65rem', fontWeight: 900 }}>{s.value}</Typography>
-                <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem' }}>{s.label}</Typography>
-                <Chip label={s.trend} size="small" sx={{ mt: 0.8, bgcolor: 'rgba(22,163,74,0.15)', color: '#4ade80', fontWeight: 700, fontSize: '0.64rem' }} />
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      <Card sx={{ ...shellSx, mb: 2 }}>
-        <CardContent sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-             <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.5rem' }}>How to Win Prizes</Typography>
-            {isPaidUser ? (
-              <label></label>
-            ) : (
-              <Button size="small" href="/subscription" sx={{ color: '#fbbf24', fontWeight: 800 }}>Upgrade to Compete</Button>
-            )}
-          </Stack>
-          <Grid container spacing={2} sx={{ mt: 0.8 }}>
-            {[
-              { n: '01', title: 'Make Predictions', color: '#22c55e', desc: 'Predict match scores before kick-off. The more accurate your predictions, the more points you earn.' },
-              { n: '02', title: 'Climb the Leaderboard', color: '#eab308', desc: 'Accumulate points throughout the month or week to climb the rankings and compete for top positions.' },
-              { n: '03', title: 'Win Amazing Prizes', color: '#a855f7', desc: 'Winners are determined from database-backed leaderboard scores for each prize period.' },
-            ].map((s) => (
-              <Grid item xs={12} md={4} key={s.n}>
-                <Box sx={{ p: 1.4, borderRadius: 2, backgroundColor: '#1e2330', border: '1px solid rgba(255,255,255,0.06)', height: '100%' }}>
-                  <Chip label={s.n} size="small" sx={{ bgcolor: `${s.color}22`, color: s.color, fontWeight: 800, mb: 1.2 }} />
-                  <Typography sx={{ color: '#fff', fontWeight: 700 }}>{s.title}</Typography>
-                  <Typography sx={{ color: '#9ca3af', fontSize: '0.74rem', mt: 0.8, lineHeight: 1.55 }}>{s.desc}</Typography>
-                </Box>
-              </Grid>
-            ))}
-          </Grid>
-        </CardContent>
-      </Card>
-
-      <Card sx={shellSx}>
-        <CardContent sx={{ p: 2 }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1.2, gap: 1 }}>
-            <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1.5rem' }}>Recent Winners</Typography>
-            <Stack direction="row" spacing={0.8}>
-              {[
-                { key: 'all', label: 'All Time' },
-                { key: 'monthly', label: 'Monthly' },
-                { key: 'weekly', label: 'Weekly' },
-                { key: 'seasonal', label: 'Seasonal' },
-                { key: 'player', label: 'Player' },
-              ].map((f) => (
-                <Button
-                  key={f.key}
-                  size="small"
-                  onClick={() => setFilter(f.key as 'all' | 'monthly' | 'weekly' | 'seasonal' | 'player')}
-                  sx={{
-                    px: 1.2,
-                    minWidth: 0,
-                    borderRadius: 999,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                     color: filter === f.key ? '#fff' : '#9ca3af',
-                     backgroundColor: filter === f.key ? '#16a34a' : 'transparent',
-                     fontSize: '0.7rem',
-                   }}
-                 >
-                  {f.label}
-                </Button>
-              ))}
-            </Stack>
-          </Stack>
-
-          <Grid container spacing={2}>
-            {visibleWinners.length === 0 ? (
-              <Grid item xs={12}>
-                <Box sx={{ p: 2, borderRadius: 2, backgroundColor: '#1e2330', border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
-                  <Typography sx={{ color: '#d1d5db', fontWeight: 700 }}>No winner yet</Typography>
-                </Box>
-              </Grid>
-            ) : (
-              visibleWinners.map((winner) => {
-                const nm = winner.profiles?.display_name?.trim() || 'No winner yet';
                 return (
-                  <Grid item xs={12} md={6} lg={4} key={winner.id}>
-                    <Box sx={{ p: 1.6, borderRadius: 2, backgroundColor: '#1e2330', border: '1px solid rgba(255,255,255,0.06)' }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Box sx={{ width: 34, height: 34, borderRadius: '50%', backgroundColor: '#fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#111827', fontWeight: 800, fontSize: '0.72rem' }}>
-                            {nm.slice(0, 2).toUpperCase()}
+                  <Grid item xs={12} sm={6} lg={4} key={prize.id}>
+                    <Card
+                      sx={{
+                        backgroundColor: isLocked ? '#111' : '#141414',
+                        border: isLocked ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '14px',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        '&::before': isLocked
+                          ? {
+                              content: '""',
+                              position: 'absolute',
+                              inset: 0,
+                              background:
+                                'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.012) 8px, rgba(255,255,255,0.012) 16px)',
+                              pointerEvents: 'none',
+                              zIndex: 0,
+                            }
+                          : undefined,
+                      }}
+                    >
+                      <CardContent sx={{ p: 2.5, position: 'relative', zIndex: 1 }}>
+                        <Box sx={{ opacity: isLocked ? 0.4 : 1 }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+                            <Box>
+                              <Box
+                                sx={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  px: 1.2,
+                                  py: 0.4,
+                                  borderRadius: 999,
+                                  fontSize: '0.68rem',
+                                  fontWeight: 600,
+                                  textTransform: 'capitalize',
+                                  ...badge,
+                                }}
+                              >
+                                {prize.type} prize
+                              </Box>
+                              <Typography sx={{ color: '#fff', fontSize: '1rem', fontWeight: 500, mt: 1 }}>
+                                {prizeTitle(prize.type)}
+                              </Typography>
+                              <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.82rem', mt: 0.5 }}>
+                                {prizeSubtitle(prize)}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography sx={{ color: '#fff', fontSize: '1.3rem', fontWeight: 600 }}>
+                                {valueDisplay}
+                              </Typography>
+                              <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem' }}>
+                                {valueLabel}
+                              </Typography>
+                            </Box>
+                          </Stack>
+
+                          {prize.type === 'player' && (
+                            <Box sx={{ mt: 1.4 }}>
+                              <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.78rem' }}>
+                                Target:{' '}
+                                <Box component="span" sx={{ color: '#fbbf24', fontWeight: 600 }}>
+                                  {target != null ? `${target} pts` : 'Target points'}
+                                </Box>
+                                {' '}· {conditionLabel} · Multiple winners possible
+                              </Typography>
+                            </Box>
+                          )}
+
+                          <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.07)', mt: 1.4, mb: 1.4 }} />
+
+                          <Stack direction="row" justifyContent="space-between" alignItems="center">
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Box sx={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: '#4ade80' }} />
+                              <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.72rem' }}>
+                                {statusLabels[prize.type] || 'Open'}
+                              </Typography>
+                            </Stack>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem' }}>
+                              Paid players only
+                            </Typography>
+                          </Stack>
+                        </Box>
+
+                        {isLocked && (
+                          <Box
+                            sx={{
+                              borderTop: '1px solid rgba(255,255,255,0.07)',
+                              pt: 1.4,
+                              mt: 1.4,
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 1.5,
+                            }}
+                          >
+                            <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem' }}>
+                              Upgrade to Pro to compete for this prize
+                            </Typography>
+                            <Button
+                              size="small"
+                              href="/subscription"
+                              sx={{
+                                border: '1px solid #fbbf24',
+                                color: '#fbbf24',
+                                textTransform: 'none',
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                px: 1.6,
+                                '&:hover': { borderColor: '#f59e0b', backgroundColor: 'rgba(251,191,36,0.08)' },
+                              }}
+                            >
+                              Upgrade to unlock
+                            </Button>
                           </Box>
-                          <Box>
-                            <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.8rem' }}>{nm}</Typography>
-                            <Typography sx={{ color: '#6b7280', fontSize: '0.68rem' }}>Winner</Typography>
-                          </Box>
-                        </Stack>
-                        <Chip label={winner.type} size="small" sx={{ bgcolor: 'rgba(22,163,74,0.15)', color: '#4ade80', fontWeight: 700, textTransform: 'capitalize' }} />
-                      </Stack>
-                      <Typography sx={{ color: '#6b7280', fontSize: '0.68rem', mt: 1 }}>Prize Won</Typography>
-                      <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.92rem' }}>{winner.prize_description || 'Premium Reward'}</Typography>
-                      <Typography sx={{ color: '#22c55e', fontWeight: 700, mt: 0.5, fontSize: '0.9rem' }}>
-                        {winner.prize_value != null ? formatCurrency(winner.prize_value) : 'Value not specified'}
-                      </Typography>
-                      {winner.type === 'player' && winner.winner_match_day_label && (
-                        <Typography sx={{ color: '#94a3b8', fontSize: '0.68rem', mt: 0.6 }}>
-                          Matchday: {winner.winner_match_day_label}
-                        </Typography>
-                      )}
-                      <Stack direction="row" justifyContent="space-between" sx={{ mt: 1 }}>
-                        <Typography sx={{ color: '#6b7280', fontSize: '0.68rem' }}>
-                          {winner.winner_points != null ? `Points ${winner.winner_points}` : 'Points not available'}
-                        </Typography>
-                        <Typography sx={{ color: '#6b7280', fontSize: '0.68rem' }}>
-                          {new Date(winner.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </Typography>
-                      </Stack>
-                    </Box>
+                        )}
+                      </CardContent>
+                    </Card>
                   </Grid>
                 );
-              })
-            )}
-          </Grid>
-
-          {winnersToRender.length > 6 && (
-            <Box sx={{ textAlign: 'center', mt: 1.6 }}>
-              <Button
-                onClick={() => setShowAllWinners((value) => !value)}
-                sx={{ color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, px: 2.2 }}
-              >
-                {showAllWinners ? 'SHOW LESS' : 'VIEW ALL WINNERS'}
-              </Button>
-            </Box>
+              })}
+            </Grid>
           )}
-        </CardContent>
-      </Card>
+
+          <Card sx={{ backgroundColor: '#141414', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px' }}>
+            <CardContent sx={{ p: 2.5 }}>
+              <Typography sx={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600, mb: 1.6 }}>
+                How prizes work
+              </Typography>
+              <Grid container spacing={2}>
+                {[
+                  {
+                    n: '01',
+                    title: 'Make predictions',
+                    desc: 'Submit your combined totals before each matchday cutoff',
+                  },
+                  {
+                    n: '02',
+                    title: 'Earn points',
+                    desc: 'The more accurate your predictions the more points you score',
+                  },
+                  {
+                    n: '03',
+                    title: 'Win prizes',
+                    desc: 'Top scorers in each period are awarded by the admin',
+                  },
+                ].map((step) => (
+                  <Grid item xs={12} sm={4} key={step.n}>
+                    <Box
+                      sx={{
+                        background: 'rgba(255,255,255,0.03)',
+                        borderRadius: '10px',
+                        p: 1.6,
+                        height: '100%',
+                      }}
+                    >
+                      <Typography sx={{ fontSize: '11px', color: '#4ade80', mb: 0.6 }}>
+                        Step {step.n}
+                      </Typography>
+                      <Typography sx={{ fontSize: '13px', fontWeight: 500, color: '#fff', mb: 0.6 }}>
+                        {step.title}
+                      </Typography>
+                      <Typography sx={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
+                        {step.desc}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                ))}
+              </Grid>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
+
+      {activeTab === 'wins' && (
+        <Box>
+          {myWins.length === 0 ? (
+            <Card
+              sx={{
+                backgroundColor: '#141414',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '14px',
+                textAlign: 'center',
+              }}
+            >
+              <CardContent sx={{ p: 4 }}>
+                <Box
+                  sx={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    backgroundColor: 'rgba(255,255,255,0.05)',
+                    mx: 'auto',
+                    mb: 1.5,
+                  }}
+                />
+                <Typography sx={{ fontSize: '0.95rem', fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
+                  No wins yet
+                </Typography>
+                <Typography sx={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.25)', mt: 0.6 }}>
+                  Keep predicting - your wins will appear here when awarded
+                </Typography>
+                {!isPaidUser && (
+                  <Box sx={{ mt: 2 }}>
+                    <Button
+                      href="/subscription"
+                      sx={{
+                        border: '1px solid #fbbf24',
+                        color: '#fbbf24',
+                        textTransform: 'none',
+                        fontWeight: 600,
+                        px: 2.2,
+                        '&:hover': { borderColor: '#f59e0b', backgroundColor: 'rgba(251,191,36,0.08)' },
+                      }}
+                    >
+                      Upgrade to compete
+                    </Button>
+                    {subscriptionStatus && (
+                      <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem', mt: 0.8 }}>
+                        Your account is {subscriptionStatus}.
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <Grid container spacing={2}>
+              {myWins.map((win) => {
+                const badge = badgeStyles[win.type || 'weekly'] || badgeStyles.weekly;
+                const valueDisplay = win.prize_value_display || '--';
+                const valueLabel = win.prize_value_label || win.prize_description || 'Prize value';
+                const pointsLabel = win.points_achieved != null ? `${win.points_achieved} pts` : 'Points not available';
+                let meta = `${pointsLabel}`;
+                if (win.type === 'player') {
+                  const matchLabel = win.match_day_label ? win.match_day_label : 'matchday';
+                  meta = `Achieved on: ${matchLabel} · ${pointsLabel} scored`;
+                } else if (win.type === 'weekly') {
+                  meta = `Week of ${win.period || 'current week'} · ${pointsLabel}`;
+                } else if (win.type === 'monthly') {
+                  meta = `${formatMonthLabel(win.period)} · ${pointsLabel}`;
+                } else if (win.type === 'seasonal') {
+                  const seasonLabel = win.season_name ? `Season ${win.season_name}` : `Season ${win.period || ''}`.trim();
+                  meta = `${seasonLabel} · ${pointsLabel}`;
+                }
+
+                return (
+                  <Grid item xs={12} sm={6} lg={4} key={win.id}>
+                    <Card
+                      sx={{
+                        backgroundColor: '#141414',
+                        border: '1px solid rgba(74,222,128,0.2)',
+                        borderRadius: '14px',
+                      }}
+                    >
+                      <CardContent sx={{ p: 2.4 }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
+                          <Box>
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                px: 1.2,
+                                py: 0.4,
+                                borderRadius: 999,
+                                fontSize: '0.68rem',
+                                fontWeight: 600,
+                                textTransform: 'capitalize',
+                                ...badge,
+                              }}
+                            >
+                              {win.type || 'prize'}
+                            </Box>
+                            <Typography sx={{ color: '#fff', fontSize: '0.9rem', fontWeight: 500, mt: 1 }}>
+                              {prizeTitle(win.type)}
+                            </Typography>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem', mt: 0.4 }}>
+                              {meta}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Typography sx={{ color: '#4ade80', fontSize: '1.25rem', fontWeight: 600 }}>
+                              {valueDisplay}
+                            </Typography>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.72rem' }}>
+                              {valueLabel}
+                            </Typography>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.72rem', mt: 0.6 }}>
+                              {formatAwardedDate(win.earned_at || win.created_at || null)}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                );
+              })}
+            </Grid>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }
-
-
-
-

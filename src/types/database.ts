@@ -142,6 +142,7 @@ export interface Prize {
   id: string;
   type: PrizeType;
   period: string | null;
+  prize_matchday_id?: string | null;
   points_threshold?: number | null;
   winner_user_id: string | null;
   prize_description: string | null;

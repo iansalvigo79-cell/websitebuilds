@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isAfterCutoff } from '@/lib/predictionRules';
+import { getUKTimestamp } from '@/lib/timezoneUtils';
 
 /**
  * POST /api/predictions/update
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
   const adminSupabase = serviceKey
     ? createClient(supabaseUrl, serviceKey)
     : null;
+  const dbClient = adminSupabase ?? supabase;
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
   if (authError || !user) {
@@ -64,9 +66,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { data: matchDay, error: mdError } = await supabase
+  const { data: matchDay, error: mdError } = await dbClient
     .from('match_days')
-    .select('id, cutoff_at')
+    .select('id, cutoff_at, season_id')
     .eq('id', matchDayId)
     .single();
 
@@ -74,28 +76,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Match day not found' }, { status: 404 });
   }
 
-  const { data: games, error: gamesError } = await supabase
-    .from('games')
-    .select('kickoff_at')
-    .eq('match_day_id', matchDayId)
-    .order('kickoff_at', { ascending: true });
+  const { data: season, error: seasonError } = await dbClient
+    .from('seasons')
+    .select('id, is_active')
+    .eq('id', matchDay.season_id)
+    .maybeSingle();
 
-  if (gamesError) {
-    return NextResponse.json({ error: 'Failed to load games' }, { status: 500 });
+  if (seasonError) {
+    return NextResponse.json({ error: 'Failed to verify season' }, { status: 500 });
   }
 
-  if (isAfterCutoff(matchDay.cutoff_at, games || [])) {
-    return NextResponse.json(
-      { error: 'Predictions are locked for this match day' },
-      { status: 400 }
-    );
+  if (!season || !season.is_active) {
+    return NextResponse.json({ error: 'Season is closed for this matchday' }, { status: 400 });
   }
 
-  const dbClient = adminSupabase ?? supabase;
+  if (matchDay.cutoff_at) {
+    const cutoffTs = getUKTimestamp(matchDay.cutoff_at);
+    if (Date.now() > cutoffTs) {
+      return NextResponse.json(
+        { error: 'The prediction window for this matchday has closed' },
+        { status: 400 }
+      );
+    }
+  } else {
+    const { data: games, error: gamesError } = await dbClient
+      .from('games')
+      .select('kickoff_at')
+      .eq('match_day_id', matchDayId)
+      .order('kickoff_at', { ascending: true });
+
+    if (gamesError) {
+      return NextResponse.json({ error: 'Failed to load games' }, { status: 500 });
+    }
+
+    if (isAfterCutoff(matchDay.cutoff_at, games || [])) {
+      return NextResponse.json(
+        { error: 'Predictions are locked for this match day' },
+        { status: 400 }
+      );
+    }
+  }
 
   const { data: existingProfile, error: profileLookupError } = await dbClient
     .from('profiles')
-    .select('id')
+    .select('id, account_type, subscription_status, stripe_subscription_id')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -133,6 +157,24 @@ export async function POST(request: NextRequest) {
 
   const halfTimeGoals = predicted_half_time_goals ?? predicted_ht_goals ?? null;
   const ftCorners = predicted_ft_corners ?? predicted_total_corners ?? null;
+  const isPaidUser = Boolean(
+    existingProfile?.account_type === 'paid'
+      || existingProfile?.subscription_status === 'active'
+      || existingProfile?.stripe_subscription_id
+  );
+  const attemptedPaidPrediction =
+    typeof predicted_half_time_goals === 'number'
+      || typeof predicted_ht_goals === 'number'
+      || typeof predicted_ft_corners === 'number'
+      || typeof predicted_total_corners === 'number'
+      || typeof predicted_ht_corners === 'number';
+
+  if (attemptedPaidPrediction && !isPaidUser) {
+    return NextResponse.json(
+      { error: 'Paid membership required for HT goals or corners predictions' },
+      { status: 403 }
+    );
+  }
 
   const { error: upsertError } = await dbClient
     .from('predictions')

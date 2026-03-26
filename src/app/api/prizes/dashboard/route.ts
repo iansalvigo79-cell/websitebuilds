@@ -3,75 +3,36 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-export interface PrizeWithProfile {
+interface AvailablePrize {
   id: string;
   type: string;
-  period: string;
-  winner_user_id: string;
+  period: string | null;
   prize_description: string | null;
   status: string;
   created_at: string;
-  profiles?: { display_name: string | null } | null;
-  winner_points?: number | null;
-  winner_match_day_label?: string | null;
+  prize_matchday_id?: string | null;
+  prize_matchday_label?: string | null;
   prize_value?: number | null;
+  prize_value_display?: string | null;
+  prize_value_label?: string | null;
+  season_name?: string | null;
 }
 
-interface LeaderboardEntry {
-  user_id: string;
-  display_name: string;
-  total_points: number;
-  predictions_count: number;
-  rank: number;
-}
-
-interface ActivePrizeContext {
-  participants: number;
-  leader: LeaderboardEntry | null;
-  currentUser: LeaderboardEntry | null;
-  gapToLeader: number | null;
-  progressToLeaderPct: number | null;
-  periodLabel: string;
-  countdownTarget: string | null;
-}
-
-interface PrizeSummary {
-  totalPrizes: number;
-  totalWinners: number;
-  totalValue: number;
-  averageValue: number;
-  currentMonthPrizes: number;
-  previousMonthPrizes: number;
-  currentMonthWinners: number;
-  previousMonthWinners: number;
-  currentMonthAverageValue: number;
-  previousMonthAverageValue: number;
-}
-
-interface PeriodContext {
-  matchDayIds: string[];
-  periodLabel: string;
-  countdownTarget: string | null;
-}
-
-function parseMoney(value: string | null): number | null {
-  if (!value) return null;
-  const txt = value.trim();
-  if (!txt) return null;
-
-  const symbolMatch = txt.match(/[$\u00A3\u20AC]\s*([\d,]+(?:\.\d+)?)/i);
-  if (symbolMatch?.[1]) {
-    const num = Number(symbolMatch[1].replace(/,/g, ''));
-    return Number.isFinite(num) ? num : null;
-  }
-
-  const wordMatch = txt.match(/([\d,]+(?:\.\d+)?)\s*(usd|dollars?|gbp|pounds?|eur|euros?)/i);
-  if (wordMatch?.[1]) {
-    const num = Number(wordMatch[1].replace(/,/g, ''));
-    return Number.isFinite(num) ? num : null;
-  }
-
-  return null;
+interface MyWin {
+  id: string;
+  prize_id: string;
+  type: string | null;
+  period: string | null;
+  prize_description: string | null;
+  prize_value?: number | null;
+  prize_value_display?: string | null;
+  prize_value_label?: string | null;
+  points_achieved?: number | null;
+  match_day_id?: string | null;
+  match_day_label?: string | null;
+  earned_at?: string | null;
+  created_at?: string | null;
+  season_name?: string | null;
 }
 
 function formatMatchDayLabel(
@@ -87,284 +48,72 @@ function formatMatchDayLabel(
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function startOfCurrentMonthUtc(now: Date) {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+function extractPrizeValueInfo(description: string | null): {
+  prize_value: number | null;
+  prize_value_display: string | null;
+  prize_value_label: string | null;
+} {
+  if (!description) return { prize_value: null, prize_value_display: null, prize_value_label: null };
+  const trimmed = description.trim();
+  if (!trimmed) return { prize_value: null, prize_value_display: null, prize_value_label: null };
+
+  const symbolMatch = trimmed.match(/([$\u00A3\u20AC])\s*([\d,]+(?:\.\d+)?)/i);
+  if (symbolMatch?.[1] && symbolMatch?.[2]) {
+    const num = Number(symbolMatch[2].replace(/,/g, ''));
+    const label = trimmed.replace(symbolMatch[0], '').replace(/\s{2,}/g, ' ').trim();
+    return {
+      prize_value: Number.isFinite(num) ? num : null,
+      prize_value_display: `${symbolMatch[1]}${symbolMatch[2]}`,
+      prize_value_label: label || null,
+    };
+  }
+
+  const wordMatch = trimmed.match(/([\d,]+(?:\.\d+)?)\s*(usd|dollars?|gbp|pounds?|eur|euros?)/i);
+  if (wordMatch?.[1] && wordMatch?.[2]) {
+    const num = Number(wordMatch[1].replace(/,/g, ''));
+    const currency = wordMatch[2].toLowerCase();
+    const symbolMap: Record<string, string> = {
+      usd: '$',
+      dollar: '$',
+      dollars: '$',
+      gbp: '\u00A3',
+      pound: '\u00A3',
+      pounds: '\u00A3',
+      eur: '\u20AC',
+      euro: '\u20AC',
+      euros: '\u20AC',
+    };
+    const symbol = symbolMap[currency] || '';
+    const label = trimmed.replace(wordMatch[0], '').replace(/\s{2,}/g, ' ').trim();
+    return {
+      prize_value: Number.isFinite(num) ? num : null,
+      prize_value_display: `${symbol}${wordMatch[1]}`.trim() || null,
+      prize_value_label: label || null,
+    };
+  }
+
+  return { prize_value: null, prize_value_display: null, prize_value_label: trimmed };
 }
 
-function startOfPreviousMonthUtc(now: Date) {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-}
-
-function getIsoWeekBoundsUtc(year: number, week: number): { start: Date; end: Date } {
-  const jan4 = new Date(Date.UTC(year, 0, 4));
-  const jan4Day = jan4.getUTCDay() || 7; // 1..7, Monday=1
-  const firstIsoMonday = new Date(jan4);
-  firstIsoMonday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
-
-  const start = new Date(firstIsoMonday);
-  start.setUTCDate(firstIsoMonday.getUTCDate() + (week - 1) * 7);
-
-  const end = new Date(start);
-  end.setUTCDate(start.getUTCDate() + 6);
-  return { start, end };
-}
-
-async function getPeriodContext(
+async function selectPrizesWithFallback(
   supabase: any,
-  type: string,
-  period: string
-): Promise<PeriodContext> {
-  if (type === 'player') {
-    const threshold = parseInt(period, 10);
-    const { data: mdRows } = await supabase
-      .from('match_days')
-      .select('id');
-    return {
-      matchDayIds: (mdRows || []).map((m: { id: string }) => m.id),
-      periodLabel: Number.isFinite(threshold) ? `Target ${threshold} pts` : 'Player Prize',
-      countdownTarget: null,
-    };
+  selectWithMatchday: string,
+  selectFallback: string,
+  applyFilter: (query: any) => any
+) {
+  const withQuery = applyFilter(supabase.from('prizes').select(selectWithMatchday));
+  const { data, error } = await withQuery;
+  if (error && error.message && error.message.includes('prize_matchday_id')) {
+    const fallbackQuery = applyFilter(supabase.from('prizes').select(selectFallback));
+    const fallback = await fallbackQuery;
+    return { data: fallback.data as any[] | null, error: fallback.error, usedFallback: true };
   }
-  if (type === 'seasonal') {
-    const { data: seasonRaw } = await supabase
-      .from('seasons')
-      .select('id, name, end_date')
-      .eq('id', period)
-      .maybeSingle();
-    const seasonRow = seasonRaw as { id: string; name: string | null; end_date: string | null } | null;
-
-    const { data: mdRows } = await supabase
-      .from('match_days')
-      .select('id')
-      .eq('season_id', period);
-
-    return {
-      matchDayIds: (mdRows || []).map((m: { id: string }) => m.id),
-      periodLabel: seasonRow?.name || 'Season',
-      countdownTarget: seasonRow?.end_date ? `${seasonRow.end_date}T23:59:59Z` : null,
-    };
-  }
-
-  if (type === 'monthly') {
-    const m = period.match(/^(\d{4})-(\d{2})$/);
-    if (!m) return { matchDayIds: [], periodLabel: period, countdownTarget: null };
-    const year = Number(m[1]);
-    const monthIndex = Number(m[2]) - 1;
-    const start = new Date(Date.UTC(year, monthIndex, 1));
-    const end = new Date(Date.UTC(year, monthIndex + 1, 0));
-    const startStr = start.toISOString().slice(0, 10);
-    const endStr = end.toISOString().slice(0, 10);
-
-    const { data: mdRows } = await supabase
-      .from('match_days')
-      .select('id')
-      .gte('match_date', startStr)
-      .lte('match_date', endStr);
-
-    const periodLabel = start.toLocaleDateString('en-US', {
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
-
-    return {
-      matchDayIds: (mdRows || []).map((mday: { id: string }) => mday.id),
-      periodLabel,
-      countdownTarget: `${endStr}T23:59:59Z`,
-    };
-  }
-
-  if (type === 'weekly') {
-    const m = period.match(/^(\d{4})-W(\d{2})$/);
-    if (!m) return { matchDayIds: [], periodLabel: period, countdownTarget: null };
-    const year = Number(m[1]);
-    const week = Number(m[2]);
-    const { start, end } = getIsoWeekBoundsUtc(year, week);
-    const startStr = start.toISOString().slice(0, 10);
-    const endStr = end.toISOString().slice(0, 10);
-
-    const { data: mdRows } = await supabase
-      .from('match_days')
-      .select('id')
-      .gte('match_date', startStr)
-      .lte('match_date', endStr);
-
-    return {
-      matchDayIds: (mdRows || []).map((mday: { id: string }) => mday.id),
-      periodLabel: `Week ${period}`,
-      countdownTarget: `${endStr}T23:59:59Z`,
-    };
-  }
-
-  return { matchDayIds: [], periodLabel: period || 'Period', countdownTarget: null };
-}
-
-async function getLeaderboardForMatchDays(
-  supabase: any,
-  matchDayIds: string[],
-  currentUserId: string,
-  paidOnly = false
-): Promise<{
-  entries: LeaderboardEntry[];
-  participants: number;
-  leader: LeaderboardEntry | null;
-  currentUser: LeaderboardEntry | null;
-  gapToLeader: number | null;
-  progressToLeaderPct: number | null;
-}> {
-  if (matchDayIds.length === 0) {
-    return {
-      entries: [],
-      participants: 0,
-      leader: null,
-      currentUser: null,
-      gapToLeader: null,
-      progressToLeaderPct: null,
-    };
-  }
-
-  let paidIds: string[] | null = null;
-  if (paidOnly) {
-    const { data: paidProfiles } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('subscription_status', 'active');
-    const ids = (paidProfiles || []).map((p: { id: string }) => p.id);
-    if (ids.length === 0) {
-      return {
-        entries: [],
-        participants: 0,
-        leader: null,
-        currentUser: null,
-        gapToLeader: null,
-        progressToLeaderPct: null,
-      };
-    }
-    paidIds = ids;
-  }
-
-  const fetchPredictions = async () => {
-    let predQuery = supabase
-      .from('predictions')
-      .select('user_id, points, ht_goals_points, corners_points, ht_corners_points')
-      .in('match_day_id', matchDayIds);
-    if (paidIds) {
-      predQuery = predQuery.in('user_id', paidIds);
-    }
-    const { data, error } = await predQuery;
-    if (!error) return { data: data as any[], error: null };
-
-    const msg = (error as { message?: string }).message || '';
-    if (
-      (msg.includes('ht_goals_points') && msg.includes('does not exist')) ||
-      (msg.includes('corners_points') && msg.includes('does not exist')) ||
-      (msg.includes('ht_corners_points') && msg.includes('does not exist'))
-    ) {
-      let fallbackQuery = supabase
-        .from('predictions')
-        .select('user_id, points')
-        .in('match_day_id', matchDayIds);
-      if (paidIds) {
-        fallbackQuery = fallbackQuery.in('user_id', paidIds);
-      }
-      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
-      if (fallbackError) return { data: null, error: fallbackError };
-      const normalized = (fallbackData || []).map((row: any) => ({
-        ...row,
-        ht_goals_points: null,
-        corners_points: null,
-        ht_corners_points: null,
-      }));
-      return { data: normalized, error: null };
-    }
-
-    return { data: null, error };
-  };
-
-  const { data: predictionsRows, error: predictionsError } = await fetchPredictions();
-  if (predictionsError) {
-    return {
-      entries: [],
-      participants: 0,
-      leader: null,
-      currentUser: null,
-      gapToLeader: null,
-      progressToLeaderPct: null,
-    };
-  }
-
-  const grouped: Record<string, { total_points: number; predictions_count: number }> = {};
-  (predictionsRows || []).forEach((row: { user_id: string; points: number | null; ht_goals_points: number | null; corners_points: number | null; ht_corners_points: number | null }) => {
-    if (!grouped[row.user_id]) {
-      grouped[row.user_id] = { total_points: 0, predictions_count: 0 };
-    }
-    grouped[row.user_id].total_points +=
-      (row.points ?? 0) +
-      (row.ht_goals_points ?? 0) +
-      (row.corners_points ?? 0) +
-      (row.ht_corners_points ?? 0);
-    grouped[row.user_id].predictions_count += 1;
-  });
-
-  const userIds = Object.keys(grouped);
-  if (userIds.length === 0) {
-    return {
-      entries: [],
-      participants: 0,
-      leader: null,
-      currentUser: null,
-      gapToLeader: null,
-      progressToLeaderPct: null,
-    };
-  }
-
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, display_name')
-    .in('id', userIds);
-
-  const profileMap: Record<string, string | null> = {};
-  (profiles || []).forEach((p: { id: string; display_name: string | null }) => {
-    profileMap[p.id] = p.display_name ?? null;
-  });
-
-  const entries: LeaderboardEntry[] = userIds.map((userId) => ({
-    user_id: userId,
-    display_name: profileMap[userId]?.trim() || 'Player',
-    total_points: grouped[userId].total_points,
-    predictions_count: grouped[userId].predictions_count,
-    rank: 0,
-  }));
-
-  entries.sort((a, b) => {
-    if (b.total_points !== a.total_points) return b.total_points - a.total_points;
-    return b.predictions_count - a.predictions_count;
-  });
-  entries.forEach((entry, index) => {
-    entry.rank = index + 1;
-  });
-
-  const leader = entries[0] ?? null;
-  const currentUser = entries.find((entry) => entry.user_id === currentUserId) ?? null;
-  const gapToLeader = leader && currentUser ? Math.max(0, leader.total_points - currentUser.total_points) : null;
-  const progressToLeaderPct =
-    leader && currentUser && leader.total_points > 0
-      ? Math.max(0, Math.min(100, Math.round((currentUser.total_points / leader.total_points) * 100)))
-      : null;
-
-  return {
-    entries,
-    participants: entries.length,
-    leader,
-    currentUser,
-    gapToLeader,
-    progressToLeaderPct,
-  };
+  return { data: data as any[] | null, error, usedFallback: false };
 }
 
 /**
  * GET /api/prizes/dashboard
- * Returns active prize, recent awarded winners, current user prize, and derived stats from DB.
+ * Returns available prizes (pending) and the current user's wins.
  */
 export async function GET(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -389,240 +138,208 @@ export async function GET(request: Request) {
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  const [{ data: activePrizeRow }, { data: latestPrizeRow }, { data: recentRows }, { data: userPrizeRow }, { data: allPrizeRows }] =
-    await Promise.all([
-    supabase
-      .from('prizes')
-      .select('id, type, period, winner_user_id, prize_description, status, created_at')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('prizes')
-      .select('id, type, period, winner_user_id, prize_description, status, created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('prizes')
-      .select('id, type, period, winner_user_id, prize_description, status, created_at')
-      .eq('status', 'awarded')
-      .order('created_at', { ascending: false })
-      .limit(24),
-    supabase
-      .from('prizes')
-      .select('id, type, period, winner_user_id, prize_description, status, created_at')
-      .eq('winner_user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('prizes')
-      .select('id, winner_user_id, prize_description, status, created_at'),
-  ]);
+  const prizeSelect = 'id, type, period, prize_description, status, created_at, prize_matchday_id';
+  const prizeSelectFallback = 'id, type, period, prize_description, status, created_at';
 
-  const currentPrizeRow = activePrizeRow ?? latestPrizeRow ?? null;
+  const { data: availableRows, error: availableError } = await selectPrizesWithFallback(
+    supabase,
+    prizeSelect,
+    prizeSelectFallback,
+    (query) => query.eq('status', 'pending').order('created_at', { ascending: false })
+  );
 
-  const winnerIds = new Set<string>();
-  if (currentPrizeRow?.winner_user_id) winnerIds.add(currentPrizeRow.winner_user_id);
-  (recentRows || []).forEach((r) => r.winner_user_id && winnerIds.add(r.winner_user_id));
-  if (userPrizeRow?.winner_user_id) winnerIds.add(userPrizeRow.winner_user_id);
-
-  const profilesMap: Record<string, string | null> = {};
-  if (winnerIds.size > 0) {
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, display_name')
-      .in('id', [...winnerIds]);
-    (profiles || []).forEach((p: { id: string; display_name: string | null }) => {
-      profilesMap[p.id] = p.display_name ?? null;
-    });
+  if (availableError) {
+    return NextResponse.json({ error: availableError.message }, { status: 500 });
   }
 
-  const recentPrizeIds = (recentRows || []).map((r) => r.id);
-  const { data: prizeWinnerRows } = recentPrizeIds.length
+  const { data: latestPrizeRow } = await supabase
+    .from('prizes')
+    .select('id, type, period, prize_description, status, created_at')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const winQuery = await supabase
+    .from('prize_winners')
+    .select('id, prize_id, match_day_id, points, earned_at, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+  let winRows = winQuery.data || [];
+  const winRowsError = winQuery.error;
+  const prizeWinnersMissing = !!winRowsError && winRowsError.message?.includes('prize_winners');
+
+  let awardedPrizeRows: any[] = [];
+  if (prizeWinnersMissing) {
+    const { data: awardedRows, error: awardedError } = await selectPrizesWithFallback(
+      supabase,
+      'id, type, period, prize_description, prize_matchday_id, status, created_at',
+      'id, type, period, prize_description, status, created_at',
+      (query) => query.eq('winner_user_id', user.id).eq('status', 'awarded').order('created_at', { ascending: false })
+    );
+    if (awardedError) {
+      return NextResponse.json({ error: awardedError.message }, { status: 500 });
+    }
+    awardedPrizeRows = awardedRows || [];
+  } else {
+    const { data: awardedRows, error: awardedError } = await selectPrizesWithFallback(
+      supabase,
+      'id, prize_matchday_id',
+      'id',
+      (query) => query.eq('winner_user_id', user.id).eq('status', 'awarded')
+    );
+
+    if (!awardedError) {
+      const existingPrizeIds = new Set((winRows || []).map((row: any) => row.prize_id));
+      const missingAwards = (awardedRows || []).filter((row: any) => !existingPrizeIds.has(row.id));
+      if (missingAwards.length > 0) {
+        const insertPayload = missingAwards.map((row: any) => ({
+          prize_id: row.id,
+          user_id: user.id,
+          match_day_id: row.prize_matchday_id ?? null,
+          earned_at: new Date().toISOString(),
+        }));
+        const { data: insertedRows, error: insertError } = await supabase
+          .from('prize_winners')
+          .insert(insertPayload)
+          .select('id, prize_id, match_day_id, points, earned_at, created_at');
+        if (!insertError && insertedRows) {
+          winRows = [...(winRows || []), ...insertedRows];
+        } else if (insertError) {
+          console.warn('Failed to backfill prize winners', insertError);
+        }
+      }
+    }
+  }
+
+  const prizeIds = prizeWinnersMissing
+    ? [...new Set((awardedPrizeRows || []).map((row: any) => row.id).filter(Boolean))] as string[]
+    : [...new Set((winRows || []).map((row: any) => row.prize_id).filter(Boolean))] as string[];
+
+  const { data: prizeRows } = prizeWinnersMissing
+    ? { data: awardedPrizeRows }
+    : prizeIds.length
+      ? await selectPrizesWithFallback(
+          supabase,
+          'id, type, period, prize_description, prize_matchday_id',
+          'id, type, period, prize_description',
+          (query) => query.in('id', prizeIds)
+        )
+      : { data: [] as any[] };
+
+  const seasonIds = new Set<string>();
+  (availableRows || []).forEach((prize: any) => {
+    if (prize.type === 'seasonal' && prize.period) seasonIds.add(prize.period);
+  });
+  (prizeRows || []).forEach((prize: any) => {
+    if (prize.type === 'seasonal' && prize.period) seasonIds.add(prize.period);
+  });
+
+  const { data: seasons } = seasonIds.size > 0
     ? await supabase
-        .from('prize_winners')
-        .select('prize_id, match_day_id, earned_at')
-        .in('prize_id', recentPrizeIds)
+        .from('seasons')
+        .select('id, name')
+        .in('id', [...seasonIds])
     : { data: [] as any[] };
-  const recentMatchDayIds = [...new Set((prizeWinnerRows || []).map((row: any) => row.match_day_id).filter(Boolean))] as string[];
-  const { data: recentMatchDays } = recentMatchDayIds.length
+
+  const seasonMap = new Map((seasons || []).map((season: any) => [season.id, season.name]));
+
+  const matchDayIds = new Set<string>();
+  if (!prizeWinnersMissing) {
+    (winRows || []).forEach((row: any) => {
+      if (row.match_day_id) matchDayIds.add(row.match_day_id);
+    });
+  }
+  (availableRows || []).forEach((prize: any) => {
+    if (prize.prize_matchday_id) matchDayIds.add(prize.prize_matchday_id);
+  });
+  (prizeRows || []).forEach((prize: any) => {
+    if (prize.prize_matchday_id) matchDayIds.add(prize.prize_matchday_id);
+  });
+
+  const { data: matchDays } = matchDayIds.size > 0
     ? await supabase
         .from('match_days')
         .select('id, name, match_date')
-        .in('id', recentMatchDayIds)
+        .in('id', [...matchDayIds])
     : { data: [] as any[] };
-  const recentMatchDayMap = new Map((recentMatchDays || []).map((md: any) => [md.id, md]));
-  const recentWinnerMatchdayMap = new Map(
-    (prizeWinnerRows || []).map((row: any) => [
-      row.prize_id,
-      formatMatchDayLabel(row.match_day_id ? recentMatchDayMap.get(row.match_day_id) : null, row.earned_at),
-    ])
-  );
 
-  const periodContextCache = new Map<string, Promise<PeriodContext>>();
-  const leaderboardCache = new Map<
-    string,
-    Promise<{
-      entries: LeaderboardEntry[];
-      participants: number;
-      leader: LeaderboardEntry | null;
-      currentUser: LeaderboardEntry | null;
-      gapToLeader: number | null;
-      progressToLeaderPct: number | null;
-    }>
-  >();
+  const matchDayMap = new Map((matchDays || []).map((md: any) => [md.id, md]));
 
-  const cacheKeyFor = (type: string, period: string) => `${type}:${period}`;
-
-  const getPeriodContextCached = (type: string, period: string) => {
-    const key = cacheKeyFor(type, period);
-    const existing = periodContextCache.get(key);
-    if (existing) return existing;
-    const promise = getPeriodContext(supabase, type, period);
-    periodContextCache.set(key, promise);
-    return promise;
-  };
-
-  const getLeaderboardForPeriodCached = (type: string, period: string) => {
-    const key = cacheKeyFor(type, period);
-    const existing = leaderboardCache.get(key);
-    if (existing) return existing;
-    const promise = (async () => {
-      const context = await getPeriodContextCached(type, period);
-      return getLeaderboardForMatchDays(supabase, context.matchDayIds, user.id, true);
-    })();
-    leaderboardCache.set(key, promise);
-    return promise;
-  };
-
-  let activeContext: ActivePrizeContext | null = null;
-  if (currentPrizeRow) {
-    const [periodContext, leaderboard] = await Promise.all([
-      getPeriodContextCached(currentPrizeRow.type, currentPrizeRow.period),
-      getLeaderboardForPeriodCached(currentPrizeRow.type, currentPrizeRow.period),
-    ]);
-    activeContext = {
-      participants: leaderboard.participants,
-      leader: leaderboard.leader,
-      currentUser: leaderboard.currentUser,
-      gapToLeader: leaderboard.gapToLeader,
-      progressToLeaderPct: leaderboard.progressToLeaderPct,
-      periodLabel: periodContext.periodLabel,
-      countdownTarget: periodContext.countdownTarget,
+  const availablePrizes: AvailablePrize[] = (availableRows || []).map((row: any) => {
+    const valueInfo = extractPrizeValueInfo(row.prize_description);
+    return {
+      ...row,
+      prize_matchday_label: row.prize_matchday_id
+        ? formatMatchDayLabel(matchDayMap.get(row.prize_matchday_id), null)
+        : null,
+      prize_value: valueInfo.prize_value,
+      prize_value_display: valueInfo.prize_value_display,
+      prize_value_label: valueInfo.prize_value_label,
+      season_name: row.type === 'seasonal' && row.period ? (seasonMap.get(row.period) ?? null) : null,
     };
-  }
-
-  const activePrize: PrizeWithProfile | null = currentPrizeRow
-    ? {
-        ...currentPrizeRow,
-        profiles: currentPrizeRow.winner_user_id
-          ? { display_name: profilesMap[currentPrizeRow.winner_user_id] ?? null }
-          : null,
-        winner_points: currentPrizeRow.winner_user_id && currentPrizeRow.type && currentPrizeRow.period
-          ? (await getLeaderboardForPeriodCached(currentPrizeRow.type, currentPrizeRow.period)).entries
-              .find((e) => e.user_id === currentPrizeRow.winner_user_id)?.total_points ?? null
-          : null,
-        prize_value: parseMoney(currentPrizeRow.prize_description),
-      }
-    : null;
-
-  const recentWinners: PrizeWithProfile[] = await Promise.all(
-    (recentRows || []).map(async (r) => {
-      const leaderboard = await getLeaderboardForPeriodCached(r.type, r.period);
-      const winnerPoints = leaderboard.entries.find((e) => e.user_id === r.winner_user_id)?.total_points ?? null;
-      return {
-        ...r,
-        profiles: r.winner_user_id ? { display_name: profilesMap[r.winner_user_id] ?? null } : null,
-        winner_points: winnerPoints,
-        winner_match_day_label: recentWinnerMatchdayMap.get(r.id) ?? null,
-        prize_value: parseMoney(r.prize_description),
-      };
-    })
-  );
-
-  const userPrize: PrizeWithProfile | null = userPrizeRow
-    ? {
-        ...userPrizeRow,
-        profiles: userPrizeRow.winner_user_id
-          ? { display_name: profilesMap[userPrizeRow.winner_user_id] ?? null }
-          : null,
-        prize_value: parseMoney(userPrizeRow.prize_description),
-      }
-    : null;
-
-  const now = new Date();
-  const currentMonthStart = startOfCurrentMonthUtc(now);
-  const previousMonthStart = startOfPreviousMonthUtc(now);
-
-  const currentMonthRows = (allPrizeRows || []).filter((row: { created_at: string }) => {
-    const created = new Date(row.created_at);
-    return created >= currentMonthStart;
   });
 
-  const previousMonthRows = (allPrizeRows || []).filter((row: { created_at: string }) => {
-    const created = new Date(row.created_at);
-    return created >= previousMonthStart && created < currentMonthStart;
-  });
+  const prizeMap = new Map((prizeRows || []).map((prize: any) => [prize.id, prize]));
 
-  const allValues = (allPrizeRows || []).map((r: { prize_description: string | null }) => parseMoney(r.prize_description)).filter((v): v is number => v != null);
-  const currentValues = currentMonthRows.map((r: { prize_description: string | null }) => parseMoney(r.prize_description)).filter((v): v is number => v != null);
-  const previousValues = previousMonthRows.map((r: { prize_description: string | null }) => parseMoney(r.prize_description)).filter((v): v is number => v != null);
+  const myWins: MyWin[] = prizeWinnersMissing
+    ? (prizeRows || []).map((prize: any) => {
+        const valueInfo = extractPrizeValueInfo(prize?.prize_description ?? null);
+        const matchDayLabel = prize?.prize_matchday_id
+          ? formatMatchDayLabel(matchDayMap.get(prize.prize_matchday_id), prize.created_at ?? null)
+          : null;
+        return {
+          id: prize.id,
+          prize_id: prize.id,
+          type: prize?.type ?? null,
+          period: prize?.period ?? null,
+          prize_description: prize?.prize_description ?? null,
+          prize_value: valueInfo.prize_value,
+          prize_value_display: valueInfo.prize_value_display,
+          prize_value_label: valueInfo.prize_value_label,
+          points_achieved: null,
+          match_day_id: prize?.prize_matchday_id ?? null,
+          match_day_label: matchDayLabel,
+          earned_at: prize?.created_at ?? null,
+          created_at: prize?.created_at ?? null,
+          season_name: prize?.type === 'seasonal' && prize?.period ? (seasonMap.get(prize.period) ?? null) : null,
+        };
+      })
+    : (winRows || []).map((win: any) => {
+        const prize = prizeMap.get(win.prize_id) || null;
+        const valueInfo = extractPrizeValueInfo(prize?.prize_description ?? null);
+        const matchDayLabel = win.match_day_id
+          ? formatMatchDayLabel(matchDayMap.get(win.match_day_id), win.earned_at || win.created_at)
+          : prize?.prize_matchday_id
+            ? formatMatchDayLabel(matchDayMap.get(prize.prize_matchday_id), win.earned_at || win.created_at)
+            : null;
+        return {
+          id: win.id,
+          prize_id: win.prize_id,
+          type: prize?.type ?? null,
+          period: prize?.period ?? null,
+          prize_description: prize?.prize_description ?? null,
+          prize_value: valueInfo.prize_value,
+          prize_value_display: valueInfo.prize_value_display,
+          prize_value_label: valueInfo.prize_value_label,
+          points_achieved: win.points ?? null,
+          match_day_id: win.match_day_id ?? null,
+          match_day_label: matchDayLabel,
+          earned_at: win.earned_at ?? null,
+          created_at: win.created_at ?? null,
+          season_name: prize?.type === 'seasonal' && prize?.period ? (seasonMap.get(prize.period) ?? null) : null,
+        };
+      });
 
-  const totalValue = allValues.reduce((sum, val) => sum + val, 0);
-  const averageValue = allValues.length > 0 ? totalValue / allValues.length : 0;
-  const currentMonthAverageValue = currentValues.length > 0 ? currentValues.reduce((sum, val) => sum + val, 0) / currentValues.length : 0;
-  const previousMonthAverageValue = previousValues.length > 0 ? previousValues.reduce((sum, val) => sum + val, 0) / previousValues.length : 0;
-
-  const currentWinnerSet = new Set(
-    currentMonthRows
-      .map((r: { winner_user_id: string | null }) => r.winner_user_id)
-      .filter((id: string | null): id is string => Boolean(id))
-  );
-  const previousWinnerSet = new Set(
-    previousMonthRows
-      .map((r: { winner_user_id: string | null }) => r.winner_user_id)
-      .filter((id: string | null): id is string => Boolean(id))
-  );
-  const totalWinnerSet = new Set(
-    (allPrizeRows || [])
-      .map((r: { winner_user_id: string | null }) => r.winner_user_id)
-      .filter((id: string | null): id is string => Boolean(id))
-  );
-
-  const summary: PrizeSummary = {
-    totalPrizes: (allPrizeRows || []).length,
-    totalWinners: totalWinnerSet.size,
-    totalValue,
-    averageValue,
-    currentMonthPrizes: currentMonthRows.length,
-    previousMonthPrizes: previousMonthRows.length,
-    currentMonthWinners: currentWinnerSet.size,
-    previousMonthWinners: previousWinnerSet.size,
-    currentMonthAverageValue,
-    previousMonthAverageValue,
-  };
+  const activePrize = availablePrizes[0] || latestPrizeRow || null;
 
   return NextResponse.json(
     {
       activePrize,
-      recentWinners,
-      userPrize,
-      summary,
-      activeContext,
+      availablePrizes,
+      myWins,
     },
     {
       headers: { 'Cache-Control': 'no-store' },
     }
   );
 }
-
-
-
-
-
-
-
-

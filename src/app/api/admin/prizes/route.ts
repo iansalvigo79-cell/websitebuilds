@@ -1,6 +1,43 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+async function selectPrizesWithFallback(
+  supabase: any,
+  selectWithMatchday: string,
+  selectFallback: string,
+  applyFilter: (query: any) => any
+) {
+  const withQuery = applyFilter(supabase.from('prizes').select(selectWithMatchday));
+  const { data, error } = await withQuery;
+  if (error && error.message && error.message.includes('prize_matchday_id')) {
+    const fallbackQuery = applyFilter(supabase.from('prizes').select(selectFallback));
+    const fallback = await fallbackQuery;
+    return { data: fallback.data as any[] | null, error: fallback.error, usedFallback: true };
+  }
+  return { data: data as any[] | null, error, usedFallback: false };
+}
+
+async function insertPrizeWithFallback(
+  supabase: any,
+  payloadWithMatchday: Record<string, any>,
+  payloadFallback: Record<string, any>
+) {
+  const { data, error } = await supabase
+    .from('prizes')
+    .insert(payloadWithMatchday)
+    .select('id, type, period, prize_matchday_id, winner_user_id, prize_description, status, created_at')
+    .single();
+  if (error && error.message && error.message.includes('prize_matchday_id')) {
+    const fallback = await supabase
+      .from('prizes')
+      .insert(payloadFallback)
+      .select('id, type, period, winner_user_id, prize_description, status, created_at')
+      .single();
+    return { data: fallback.data as any | null, error: fallback.error, usedFallback: true };
+  }
+  return { data: data as any | null, error, usedFallback: false };
+}
+
 /**
  * GET /api/admin/prizes
  * List all prizes (admin). Uses service role to bypass RLS.
@@ -12,11 +49,12 @@ export async function GET() {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
   }
   const supabase = createClient(supabaseUrl, serviceKey);
-  const { data, error } = await supabase
-    .from('prizes')
-    .select('id, type, period, winner_user_id, prize_description, status, created_at')
-    .order('created_at', { ascending: false })
-    .limit(100);
+  const { data, error } = await selectPrizesWithFallback(
+    supabase,
+    'id, type, period, prize_matchday_id, winner_user_id, prize_description, status, created_at',
+    'id, type, period, winner_user_id, prize_description, status, created_at',
+    (query) => query.order('created_at', { ascending: false }).limit(100)
+  );
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -47,7 +85,14 @@ export async function GET() {
   const prizeWinnerMap = new Map(
     (prizeWinnerData || []).map((row: any) => [row.prize_id, row])
   );
-  const matchDayIds = [...new Set((prizeWinnerData || []).map((row: any) => row.match_day_id).filter(Boolean))] as string[];
+  const matchDayIds = [
+    ...new Set(
+      [
+        ...(prizeWinnerData || []).map((row: any) => row.match_day_id).filter(Boolean),
+        ...(prizes || []).map((p: any) => p.prize_matchday_id).filter(Boolean),
+      ]
+    ),
+  ] as string[];
   const { data: matchDayData } = matchDayIds.length
     ? await supabase
         .from('match_days')
@@ -69,10 +114,13 @@ export async function GET() {
     const winnerRow = prizeWinnerMap.get(prize.id);
     const matchDay = winnerRow?.match_day_id ? matchDayMap.get(winnerRow.match_day_id) : null;
     const winnerMatchDayLabel = winnerRow ? formatMatchDayLabel(matchDay, winnerRow.earned_at) : null;
+    const prizeMatchDay = prize.prize_matchday_id ? matchDayMap.get(prize.prize_matchday_id) : null;
+    const prizeMatchDayLabel = prizeMatchDay ? formatMatchDayLabel(prizeMatchDay, null) : null;
     return {
       ...prize,
       winner_display_name: winnerId ? (winnerNames[winnerId] ?? winnerId.slice(0, 8) + '...') : null,
       winner_match_day_label: winnerMatchDayLabel,
+      prize_match_day_label: prizeMatchDayLabel,
     };
   });
   return NextResponse.json({ prizes: withNames });
@@ -89,7 +137,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
   }
 
-  let body: { type?: string; period?: string; winner_user_id?: string | null; prize_description?: string; points_threshold?: string | number };
+  let body: {
+    type?: string;
+    period?: string;
+    winner_user_id?: string | null;
+    prize_description?: string;
+    points_threshold?: string | number;
+    prize_matchday_id?: string | null;
+  };
   try {
     body = await request.json();
   } catch {
@@ -100,6 +155,7 @@ export async function POST(request: NextRequest) {
   let period = body.period?.trim();
   const winner_user_id = body.winner_user_id?.trim() || null;
   const prize_description = body.prize_description ?? null;
+  const prize_matchday_id = body.prize_matchday_id?.trim() || null;
 
   if (!type) {
     return NextResponse.json(
@@ -125,17 +181,23 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
-  const { data, error } = await supabase
-    .from('prizes')
-    .insert({
-      type,
-      period,
-      winner_user_id,
-      prize_description,
-      status: 'pending',
-    })
-    .select('id, type, period, winner_user_id, prize_description, status, created_at')
-    .single();
+  const insertPayloadBase = {
+    type,
+    period,
+    winner_user_id,
+    prize_description,
+    status: 'pending',
+  };
+  const insertPayloadWithMatchday = {
+    ...insertPayloadBase,
+    prize_matchday_id,
+  };
+
+  const { data, error } = await insertPrizeWithFallback(
+    supabase,
+    insertPayloadWithMatchday,
+    insertPayloadBase
+  );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

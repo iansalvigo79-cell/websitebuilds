@@ -338,47 +338,47 @@ export default function DashboardTab() {
       return;
     }
 
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error('Please sign in to save predictions');
+      return;
+    }
+
     const inputs = predictionInputs[matchdayId] ?? defaultPredictionInputs;
 
     setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: true }));
-    const basePayload = {
-      user_id: currentUserId,
-      match_day_id: matchdayId,
+    const payload = {
+      matchDayId: matchdayId,
       predicted_total_goals: inputs.ftGoals !== '' ? parseInt(inputs.ftGoals, 10) : null,
+      predicted_half_time_goals: inputs.htGoals !== '' ? parseInt(inputs.htGoals, 10) : null,
+      predicted_ft_corners: inputs.ftCorners !== '' ? parseInt(inputs.ftCorners, 10) : null,
       predicted_ht_corners: inputs.htCorners !== '' ? parseInt(inputs.htCorners, 10) : null,
     };
 
-    const { error: primaryError } = await supabase
-      .from('predictions')
-      .upsert({
-        ...basePayload,
-        predicted_half_time_goals: inputs.htGoals !== '' ? parseInt(inputs.htGoals, 10) : null,
-        predicted_ft_corners: inputs.ftCorners !== '' ? parseInt(inputs.ftCorners, 10) : null,
+    const res = await fetch('/api/predictions/update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
       },
-      { onConflict: 'user_id, match_day_id' });
+      body: JSON.stringify(payload),
+    });
 
-    if (primaryError) {
-      const { error: fallbackError } = await supabase
-        .from('predictions')
-        .upsert({
-          ...basePayload,
-          predicted_ht_goals: inputs.htGoals !== '' ? parseInt(inputs.htGoals, 10) : null,
-          predicted_total_corners: inputs.ftCorners !== '' ? parseInt(inputs.ftCorners, 10) : null,
-        },
-        { onConflict: 'user_id, match_day_id' });
+    const data = await res.json().catch(() => ({}));
 
-      if (fallbackError) {
-        console.error('Predictions save error:', fallbackError);
-        toast.error(fallbackError.message || 'Failed to save predictions');
-        setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: false }));
-        return;
+    if (!res.ok) {
+      if (res.status === 400 && data?.error === 'The prediction window for this matchday has closed') {
+        toast.error('Sorry, the prediction window for this matchday has closed. Predictions are no longer accepted.');
+      } else {
+        toast.error(data?.error || 'Failed to save predictions');
       }
+      setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: false }));
+      return;
     }
 
     setIsSavingPredictions((prev) => ({ ...prev, [matchdayId]: false }));
-    toast.success(`Predictions saved! \u2705`);
+    toast.success('Predictions saved!');
   };
-
   const formatGameDateTime = (dateString: string | null | undefined) => {
     if (!dateString) return '--/--/----, --:--:--';
     const date = new Date(dateString);
@@ -937,6 +937,7 @@ export default function DashboardTab() {
     </Box>
   );
 }
+
 
 
 

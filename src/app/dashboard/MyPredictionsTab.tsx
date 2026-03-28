@@ -35,7 +35,13 @@ interface PredictionRow {
   matchdayLabel: string;
   matchdayName: string;
   predicted_total_goals: number;
+  predicted_half_time_goals?: number | null;
+  predicted_ft_corners?: number | null;
+  predicted_ht_corners?: number | null;
   actual_total_goals: number | null;
+  actual_ht_goals?: number | null;
+  actual_total_corners?: number | null;
+  actual_ht_corners?: number | null;
   points: number | null;
   ft_points: number | null;
   ht_goals_points?: number | null;
@@ -60,13 +66,29 @@ const fmtMember = (d: string) => new Date(d).toLocaleDateString('en-US', { month
 const initials = (n?: string) => (n || 'Goalactico').split(/\s+/).map((x) => x[0]).join('').slice(0, 2).toUpperCase();
 const weekStart = (d: Date) => { const x = new Date(d); const day = x.getDay(); x.setDate(x.getDate() - day + (day === 0 ? -6 : 1)); x.setHours(0, 0, 0, 0); return x; };
 
-type PointField = 'ft_points' | 'ht_goals_points' | 'corners_points' | 'ht_corners_points';
+type AccuracyField =
+  | 'predicted_total_goals'
+  | 'predicted_half_time_goals'
+  | 'predicted_ft_corners'
+  | 'predicted_ht_corners'
+  | 'actual_total_goals'
+  | 'actual_ht_goals'
+  | 'actual_total_corners'
+  | 'actual_ht_corners';
 
-const calcAccuracyPoints = (rows: PredictionRow[], field: PointField): number | null => {
-  const withPoints = rows.filter((r) => r[field] != null);
-  if (withPoints.length === 0) return null;
-  const hits = withPoints.filter((r) => (r[field] ?? 0) > 0).length;
-  return Math.round((hits / withPoints.length) * 100);
+const calcAccuracyRatio = (
+  rows: PredictionRow[],
+  predictedField: AccuracyField,
+  actualField: AccuracyField
+): number | null => {
+  const valid = rows.filter((r) => r[predictedField] != null && r[actualField] != null);
+  if (valid.length === 0) return null;
+  const predictedTotal = valid.reduce((sum, r) => sum + Number(r[predictedField] ?? 0), 0);
+  const actualTotal = valid.reduce((sum, r) => sum + Number(r[actualField] ?? 0), 0);
+  if (actualTotal <= 0) {
+    return predictedTotal <= 0 ? 100 : 0;
+  }
+  return Math.round((predictedTotal / actualTotal) * 100);
 };
 
 function useAnimatedNumber(target: number, durationMs = 900) {
@@ -222,7 +244,13 @@ export default function MyPredictionsTab() {
         matchdayLabel: `MD ${sortedMd.indexOf(p.match_day_id) + 1}`,
         matchdayName: md.name?.trim() || 'Matchday',
         predicted_total_goals: p.predicted_total_goals,
+        predicted_half_time_goals: p.predicted_half_time_goals ?? null,
+        predicted_ft_corners: p.predicted_ft_corners ?? null,
+        predicted_ht_corners: p.predicted_ht_corners ?? null,
         actual_total_goals: md.actual_total_goals,
+        actual_ht_goals: md.ht_goals ?? null,
+        actual_total_corners: md.total_corners ?? null,
+        actual_ht_corners: md.ht_corners ?? null,
         points: totalPoints,
         ft_points: ftPoints,
         ht_goals_points: p.ht_goals_points ?? null,
@@ -287,11 +315,14 @@ export default function MyPredictionsTab() {
     () => [...completed].sort((a, b) => (a.match_date > b.match_date ? -1 : 1)),
     [completed]
   );
-  const totalAccuracy = useMemo(() => calcAccuracyPoints(completed, 'ft_points') ?? 0, [completed]);
+  const totalAccuracy = useMemo(
+    () => calcAccuracyRatio(completed, 'predicted_total_goals', 'actual_total_goals') ?? 0,
+    [completed]
+  );
   const isPaid = profile?.account_type === 'paid' || profile?.subscription_status === 'active';
   const last3Accuracy = useMemo(() => {
     const slice = completedSorted.slice(0, 3);
-    return calcAccuracyPoints(slice, 'ft_points') ?? 0;
+    return calcAccuracyRatio(slice, 'predicted_total_goals', 'actual_total_goals') ?? 0;
   }, [completedSorted]);
   const thisMonthAccuracy = useMemo(() => {
     const now = new Date();
@@ -301,7 +332,7 @@ export default function MyPredictionsTab() {
       const d = new Date(p.match_date);
       return d >= start && d <= end;
     });
-    return calcAccuracyPoints(rows, 'ft_points') ?? 0;
+    return calcAccuracyRatio(rows, 'predicted_total_goals', 'actual_total_goals') ?? 0;
   }, [completed]);
   const lastWeekAccuracy = useMemo(() => {
     const now = new Date();
@@ -314,12 +345,21 @@ export default function MyPredictionsTab() {
       const d = new Date(p.match_date);
       return d >= lastWeekStart && d <= lastWeekEnd;
     });
-    return calcAccuracyPoints(rows, 'ft_points') ?? 0;
+    return calcAccuracyRatio(rows, 'predicted_total_goals', 'actual_total_goals') ?? 0;
   }, [completed]);
   const totalGoalAccuracy = totalAccuracy;
-  const htGoalAccuracy = useMemo(() => calcAccuracyPoints(completed, 'ht_goals_points'), [completed]);
-  const ftCornerAccuracy = useMemo(() => calcAccuracyPoints(completed, 'corners_points'), [completed]);
-  const htCornerAccuracy = useMemo(() => calcAccuracyPoints(completed, 'ht_corners_points'), [completed]);
+  const htGoalAccuracy = useMemo(
+    () => calcAccuracyRatio(completed, 'predicted_half_time_goals', 'actual_ht_goals'),
+    [completed]
+  );
+  const ftCornerAccuracy = useMemo(
+    () => calcAccuracyRatio(completed, 'predicted_ft_corners', 'actual_total_corners'),
+    [completed]
+  );
+  const htCornerAccuracy = useMemo(
+    () => calcAccuracyRatio(completed, 'predicted_ht_corners', 'actual_ht_corners'),
+    [completed]
+  );
   const avg = completed.length ? (completed.reduce((a, b) => a + (b.points ?? 0), 0) / completed.length).toFixed(1) : '0.0';
   const best = useMemo(() => completed.length ? [...completed].sort((a, b) => (b.points ?? 0) - (a.points ?? 0))[0] : null, [completed]);
   const worst = useMemo(() => completed.length ? [...completed].sort((a, b) => (a.points ?? 0) - (b.points ?? 0))[0] : null, [completed]);

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Box, Typography, Stack, Button, Card, CardContent } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
@@ -891,10 +891,10 @@ export default function DashboardTab() {
           </Typography>
           <Stack spacing={1.1} sx={{ mb: 1.5 }}>
             {[
-              { name: 'FT Goals', pill: '? Free', type: 'free' },
-              { name: 'HT Goals', pill: '?? Pro', type: 'pro' },
-              { name: 'FT Corners', pill: '?? Pro', type: 'pro' },
-              { name: 'HT Corners', pill: '?? Pro', type: 'pro' },
+              { name: 'FT Goals', pill: 'Free', type: 'free' },
+              { name: 'HT Goals', pill: 'Pro', type: 'pro' },
+              { name: 'FT Corners', pill: 'Pro', type: 'pro' },
+              { name: 'HT Corners', pill: 'Pro', type: 'pro' },
             ].map((game) => (
               <Box key={game.name} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>{game.name}</Typography>

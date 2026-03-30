@@ -8,12 +8,24 @@ import { Profile } from '@/types/database';
 import CheckIcon from '@mui/icons-material/Check';
 import { toast } from 'react-toastify';
 import ModernLoader from '@/components/ui/ModernLoader';
+import { allCountries } from 'country-telephone-data';
 
 const GBP_PRICE = 5;
 const GBP_CURRENCY = 'GBP';
 const GEO_CACHE_KEY = 'geo_currency_cache_v1';
 const RATE_CACHE_KEY = 'gbp_rates_cache_v1';
+const PROFILE_CURRENCY_CACHE_KEY = 'profile_currency_cache_v1';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 12;
+
+type PhoneCountry = { name: string; iso2: string; code: string };
+
+const PHONE_COUNTRIES: PhoneCountry[] = allCountries
+  .map((country: { name: string; iso2: string; dialCode: string }) => ({
+    name: country.name,
+    iso2: country.iso2.toUpperCase(),
+    code: country.dialCode.startsWith('+') ? country.dialCode : `+${country.dialCode}`,
+  }))
+  .sort((a, b) => b.code.length - a.code.length);
 
 // ---- Separate component for useSearchParams ----
 // Must be isolated so it can be wrapped in its own <Suspense>
@@ -43,6 +55,7 @@ function PaywallContent() {
   const [detectedCurrency, setDetectedCurrency] = useState(GBP_CURRENCY);
   const [convertedPrice, setConvertedPrice] = useState<number | null>(null);
   const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
+  const [currencySource, setCurrencySource] = useState<'profile' | 'geo' | 'default'>('default');
   // const isMobile = useMediaQuery('(max-width:600px)');
 
   const fetchAuthAndProfile = useCallback(async (showLoading = true) => {
@@ -57,7 +70,7 @@ function PaywallContent() {
       setUser(authUser);
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('id, account_type, subscription_status, stripe_customer_id, stripe_subscription_id')
+        .select('id, account_type, subscription_status, stripe_customer_id, stripe_subscription_id, whatsapp')
         .eq('id', authUser.id)
         .single();
       if (profileData) setProfile(profileData as Profile);
@@ -124,20 +137,60 @@ function PaywallContent() {
     const resolvePricingCurrency = async () => {
       let currency = GBP_CURRENCY;
       let countryName: string | null = null;
+      let source: 'profile' | 'geo' | 'default' = 'default';
 
       try {
-        const cachedGeo = readCache(GEO_CACHE_KEY) as { currency?: string } | null;
-        if (cachedGeo?.currency) {
-          currency = cachedGeo.currency;
-          countryName = (cachedGeo as { country?: string }).country ?? null;
-        } else {
-          const geoRes = await fetch('https://ipapi.co/json/');
-          if (geoRes.ok) {
-            const geoData = await geoRes.json();
-            if (geoData?.currency) {
-              currency = geoData.currency;
-              countryName = geoData.country_name ?? null;
-              writeCache(GEO_CACHE_KEY, { currency: geoData.currency, country: geoData.country_name });
+        const profilePhone = profile?.whatsapp?.trim() ?? '';
+        if (profilePhone) {
+          const normalized = profilePhone.replace(/[^\d+]/g, '');
+          const withPlus = normalized.startsWith('+') ? normalized : `+${normalized}`;
+          const phoneMatch = PHONE_COUNTRIES.find((entry) => withPlus.startsWith(entry.code));
+          if (phoneMatch) {
+            const cachedProfile = readCache(PROFILE_CURRENCY_CACHE_KEY) as {
+              entries?: Record<string, { currency: string; country?: string }>;
+            } | null;
+            const cachedEntry = cachedProfile?.entries?.[phoneMatch.iso2];
+            if (cachedEntry?.currency) {
+              currency = cachedEntry.currency;
+              countryName = cachedEntry.country ?? phoneMatch.name;
+              source = 'profile';
+            } else {
+              const countryRes = await fetch(`https://restcountries.com/v3.1/alpha/${phoneMatch.iso2}`);
+              if (countryRes.ok) {
+                const countryData = await countryRes.json();
+                const firstCountry = Array.isArray(countryData) ? countryData[0] : countryData;
+                const currencyCode = firstCountry?.currencies ? Object.keys(firstCountry.currencies)[0] : null;
+                const resolvedCountry = firstCountry?.name?.common ?? phoneMatch.name;
+                if (currencyCode) {
+                  currency = currencyCode;
+                  countryName = resolvedCountry;
+                  source = 'profile';
+                  const nextEntries = {
+                    ...(cachedProfile?.entries ?? {}),
+                    [phoneMatch.iso2]: { currency: currencyCode, country: resolvedCountry },
+                  };
+                  writeCache(PROFILE_CURRENCY_CACHE_KEY, { entries: nextEntries });
+                }
+              }
+            }
+          }
+        }
+        if (source === 'default') {
+          const cachedGeo = readCache(GEO_CACHE_KEY) as { currency?: string } | null;
+          if (cachedGeo?.currency) {
+            currency = cachedGeo.currency;
+            countryName = (cachedGeo as { country?: string }).country ?? null;
+            source = 'geo';
+          } else {
+            const geoRes = await fetch('https://ipapi.co/json/');
+            if (geoRes.ok) {
+              const geoData = await geoRes.json();
+              if (geoData?.currency) {
+                currency = geoData.currency;
+                countryName = geoData.country_name ?? null;
+                source = 'geo';
+                writeCache(GEO_CACHE_KEY, { currency: geoData.currency, country: geoData.country_name });
+              }
             }
           }
         }
@@ -148,6 +201,7 @@ function PaywallContent() {
       if (!isMounted) return;
       setDetectedCurrency(currency || GBP_CURRENCY);
       setDetectedCountry(countryName);
+      setCurrencySource(source);
 
       if (!currency || currency === GBP_CURRENCY) {
         setConvertedPrice(null);
@@ -186,7 +240,7 @@ function PaywallContent() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [profile?.whatsapp]);
 
   const handleCheckout = async () => {
     setIsLoading(true);
@@ -286,7 +340,7 @@ function PaywallContent() {
   const billedPriceLabel = formatCurrency(GBP_PRICE, GBP_CURRENCY, 2);
   const showConversionBlock = showConverted;
   const currencyMeta = detectedCurrency !== GBP_CURRENCY
-    ? `Detected currency: ${detectedCurrency}${detectedCountry ? ` (${detectedCountry})` : ''}`
+    ? `${currencySource === 'profile' ? 'Profile currency' : 'Detected currency'}: ${detectedCurrency}${detectedCountry ? ` (${detectedCountry})` : ''}`
     : null;
 
   return (

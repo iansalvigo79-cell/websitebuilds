@@ -196,50 +196,46 @@ export default function HowToPlayPage() {
             </Box>
           </Box>
 
-          <Grid container spacing={3}>
-            <Grid item xs={12} md={6}>
-              <Card
-                className="anim-fade-up"
-                sx={{
-                  height: '100%',
-                  backgroundColor: 'rgba(10, 10, 10, 0.9)',
-                  border: '1px solid rgba(34,197,94,0.35)',
-                  borderRadius: 3,
-                }}
-              >
-                <CardContent sx={{ p: 3 }}>
-                  <Typography variant="h6" sx={{ color: '#22c55e', fontWeight: 800, mb: 1 }}>
-                    🆓 Free Players
-                  </Typography>
-                  <Stack spacing={0.6} sx={{ color: '#cbd5f5' }}>
-                    <Typography>Play FT Goals only</Typography>
-                    <Typography>Maximum 10 points per Match Day</Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Card
-                className="anim-fade-up"
-                sx={{
-                  height: '100%',
-                  backgroundColor: 'rgba(10, 10, 10, 0.9)',
-                  border: '1px solid rgba(251,191,36,0.35)',
-                  borderRadius: 3,
-                }}
-              >
-                <CardContent sx={{ p: 3 }}>
-                  <Typography variant="h6" sx={{ color: '#fbbf24', fontWeight: 800, mb: 1 }}>
-                    ⭐ Subscribers
-                  </Typography>
-                  <Stack spacing={0.6} sx={{ color: '#cbd5f5' }}>
-                    <Typography>Play all 4 game types</Typography>
-                    <Typography>Maximum 40 points per Match Day</Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ alignItems: 'stretch', '& > *': { flex: 1 } }}>
+            <Card
+              className="anim-fade-up"
+              sx={{
+                height: '100%',
+                backgroundColor: 'rgba(10, 10, 10, 0.9)',
+                border: '1px solid rgba(34,197,94,0.35)',
+                borderRadius: 3,
+              }}
+            >
+              <CardContent sx={{ p: 3 }}>
+                <Typography variant="h6" sx={{ color: '#22c55e', fontWeight: 800, mb: 1 }}>
+                  Free Players
+                </Typography>
+                <Stack spacing={0.6} sx={{ color: '#cbd5f5' }}>
+                  <Typography>Play FT Goals only</Typography>
+                  <Typography>Maximum 10 points per Match Day</Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+            <Card
+              className="anim-fade-up"
+              sx={{
+                height: '100%',
+                backgroundColor: 'rgba(10, 10, 10, 0.9)',
+                border: '1px solid rgba(251,191,36,0.35)',
+                borderRadius: 3,
+              }}
+            >
+              <CardContent sx={{ p: 3 }}>
+                <Typography variant="h6" sx={{ color: '#fbbf24', fontWeight: 800, mb: 1 }}>
+                  Subscribers
+                </Typography>
+                <Stack spacing={0.6} sx={{ color: '#cbd5f5' }}>
+                  <Typography>Play all 4 game types</Typography>
+                  <Typography>Maximum 40 points per Match Day</Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Stack>
 
           <Box
             className="anim-fade-up"

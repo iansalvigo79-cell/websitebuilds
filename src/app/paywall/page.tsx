@@ -1,4 +1,5 @@
 ﻿"use client";
+'use client';
 
 import { Box, Container, Typography, Stack, Button, Card, CardContent } from '@mui/material';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -131,6 +132,9 @@ function PaywallContent() {
     return formatCurrency(rounded, currency, digits);
   };
 
+  const userPhone = (user as any)?.phone ?? (user as any)?.user_metadata?.phone ?? '';
+  const profilePhone = profile?.whatsapp ?? '';
+
   useEffect(() => {
     let isMounted = true;
 
@@ -140,9 +144,9 @@ function PaywallContent() {
       let source: 'profile' | 'geo' | 'default' = 'default';
 
       try {
-        const profilePhone = profile?.whatsapp?.trim() ?? '';
-        if (profilePhone) {
-          const normalized = profilePhone.replace(/[^\d+]/g, '');
+        const phoneValue = (profilePhone || userPhone).trim();
+        if (phoneValue) {
+          const normalized = phoneValue.replace(/[^\d+]/g, '');
           const withPlus = normalized.startsWith('+') ? normalized : `+${normalized}`;
           const phoneMatch = PHONE_COUNTRIES.find((entry) => withPlus.startsWith(entry.code));
           if (phoneMatch) {
@@ -240,7 +244,7 @@ function PaywallContent() {
     return () => {
       isMounted = false;
     };
-  }, [profile?.whatsapp]);
+  }, [profilePhone, userPhone]);
 
   const handleCheckout = async () => {
     setIsLoading(true);

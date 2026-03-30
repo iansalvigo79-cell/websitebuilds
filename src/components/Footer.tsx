@@ -21,7 +21,7 @@ export default function Footer() {
         <Grid container spacing={{ xs: 3, md: 4 }} sx={{ py: { xs: 4, md: 6 } }}>
           <Grid item xs={12} sm={6} md={3} sx={{ textAlign: { xs: 'center', sm: 'left' } }}>
             <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, fontSize: { xs: '1rem', md: '1.1rem' } }}>
-              GamePredict ---- GOALACTICO
+              GOALACTICO
             </Typography>
             <Typography variant="body2" color="rgba(255,255,255,0.7)" sx={{ fontSize: { xs: '0.85rem', md: '0.875rem' } }}>
               Put your football knowledge to the test. Play free forever or subscribe to unlock full challenges and prove you are a genuine prediction expert.
@@ -53,7 +53,7 @@ export default function Footer() {
               <Link href="/blog" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Blog
               </Link>
-              <Link href="#" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              <Link href="/contact" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Contact
               </Link>
             </Box>

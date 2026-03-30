@@ -8,6 +8,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import SessionManager from '@/components/SessionManager';
 
 const theme = createTheme({
   palette: {
@@ -86,6 +87,7 @@ export default function RootLayout({
       <body>
         <ThemeProvider theme={theme}>
           <CssBaseline />
+          <SessionManager />
           <div className={`app-root ${isMounted ? 'is-mounted' : ''}`} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0a' }}>
             <Header />
             <div style={{ flex: 1 }}>

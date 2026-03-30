@@ -24,7 +24,7 @@ export default function Footer() {
               GamePredict ---- GOALACTICO
             </Typography>
             <Typography variant="body2" color="rgba(255,255,255,0.7)" sx={{ fontSize: { xs: '0.85rem', md: '0.875rem' } }}>
-              Put your football knowledge to the test. Play free forever or subscribe to unlock full challenges and prove you're a genuine prediction expert.
+              Put your football knowledge to the test. Play free forever or subscribe to unlock full challenges and prove you are a genuine prediction expert.
             </Typography>
           </Grid>
 

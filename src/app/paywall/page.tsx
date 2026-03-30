@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Box, Container, Typography, Stack, Button, Card, CardContent, useMediaQuery } from '@mui/material';
+import { Box, Container, Typography, Stack, Button, Card, CardContent } from '@mui/material';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -43,7 +43,7 @@ function PaywallContent() {
   const [detectedCurrency, setDetectedCurrency] = useState(GBP_CURRENCY);
   const [convertedPrice, setConvertedPrice] = useState<number | null>(null);
   const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
-  const isMobile = useMediaQuery('(max-width:600px)');
+  // const isMobile = useMediaQuery('(max-width:600px)');
 
   const fetchAuthAndProfile = useCallback(async (showLoading = true) => {
     try {

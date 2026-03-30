@@ -14,32 +14,32 @@ const faqItems = [
   {
     question: 'What do I predict in Goalactico?',
     answer:
-      'For each matchday, you predict the total goals scored across all listed fixtures. Your prediction is compared with the real total once matches are completed.',
+      'You’re predicting totals across all games combined in a matchday — not scorelines for each match. Free players play FT (full-time) goals only, while subscribers unlock all four games: FT goals, HT (half-time) goals, FT corners, and HT corners.',
   },
   {
     question: 'When does prediction entry close?',
     answer:
-      'Predictions lock when the first game of that matchday kicks off. You can edit your entry any time before kickoff.',
+      'Every matchday has a fixed cut-off time. You must submit your prediction before this deadline, otherwise it will not count. All times are displayed in GMT.',
   },
   {
     question: 'How are points calculated?',
     answer:
-      'Points are awarded by accuracy: exact total = 10 points, off by 1 = 7 points, off by 2 = 4 points, off by 3 = 2 points, and more than 3 away = 0 points.',
+      'The closer your prediction is to the real total, the more points you earn. Exact = 10 points, ±1 = 7 points, ±2 = 4 points, ±3 = 2 points, anything beyond that = 0 points.',
   },
   {
     question: 'How does the leaderboard work?',
     answer:
-      'Your points are added across matchdays. Players with the highest cumulative score rank at the top and compete for period-based prizes.',
+      'Your points build across matchdays, with the highest totals ranking at the top. Free players compete for bragging rights only, while subscribers compete in prize leagues and can win rewards.',
   },
   {
     question: 'What is the difference between free and paid access?',
     answer:
-      'Free users can play the core prediction mode. Paid access unlocks all four prediction games: FT Goals, HT Goals, FT Corners, and HT Corners.',
+      'Free players play one game — predicting Full-Time (FT) goals. Subscribers unlock the full experience, with four full-time and half-time prediction games: FT goals, HT goals, FT corners, and HT corners.',
   },
   {
     question: 'Is this betting or gambling?',
     answer:
-      'No. Goalactico is a skill-based prediction competition. You are not placing wagers on match outcomes.',
+      'No. Goalactico is a skill-based prediction game. You are not placing bets or wagering money on odds based match outcomes.',
   },
 ];
 

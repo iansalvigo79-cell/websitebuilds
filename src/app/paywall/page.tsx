@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Box, Container, Typography, Stack, Button, Card, CardContent } from '@mui/material';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -15,7 +15,7 @@ const GEO_CACHE_KEY = 'geo_currency_cache_v1';
 const RATE_CACHE_KEY = 'gbp_rates_cache_v1';
 const CACHE_TTL_MS = 1000 * 60 * 60 * 12;
 
-// ── Separate component for useSearchParams ────────────────────────────────────
+// ---- Separate component for useSearchParams ----
 // Must be isolated so it can be wrapped in its own <Suspense>
 function CancelledToast() {
   const searchParams = useSearchParams();
@@ -32,7 +32,7 @@ function CancelledToast() {
   return null;
 }
 
-// ── Main paywall content ──────────────────────────────────────────────────────
+// ---- Main paywall content ----
 function PaywallContent() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -43,6 +43,7 @@ function PaywallContent() {
   const [detectedCurrency, setDetectedCurrency] = useState(GBP_CURRENCY);
   const [convertedPrice, setConvertedPrice] = useState<number | null>(null);
   const [detectedCountry, setDetectedCountry] = useState<string | null>(null);
+  // const isMobile = useMediaQuery('(max-width:600px)');
 
   const fetchAuthAndProfile = useCallback(async (showLoading = true) => {
     try {
@@ -283,6 +284,7 @@ function PaywallContent() {
     ? `~${formatRoundedCurrency(convertedPrice as number, detectedCurrency)}`
     : formatCurrency(GBP_PRICE, GBP_CURRENCY, 0);
   const billedPriceLabel = formatCurrency(GBP_PRICE, GBP_CURRENCY, 2);
+  const showConversionBlock = showConverted;
   const currencyMeta = detectedCurrency !== GBP_CURRENCY
     ? `Detected currency: ${detectedCurrency}${detectedCountry ? ` (${detectedCountry})` : ''}`
     : null;
@@ -292,7 +294,7 @@ function PaywallContent() {
       <Box className="anim-fade-up" sx={{ py: 6 }}>
         <Container maxWidth="md">
           <Box sx={{ textAlign: 'center', mb: 6 }}>
-            <Typography sx={{ fontSize: '2.5rem', mb: 1 }}>👑</Typography>
+            <Typography sx={{ fontSize: '2.5rem', mb: 1 }}>PRO</Typography>
             <Typography sx={{ fontWeight: 900, color: '#fff', fontSize: '2.5rem', mb: 1 }}>
               UNLOCK FULL ACCESS
             </Typography>
@@ -311,19 +313,19 @@ function PaywallContent() {
             }}
           >
             <CardContent sx={{ p: { xs: 3, md: 5 } }}>
-              <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 1, mb: 3 }}>
-                <Typography sx={{ fontSize: '4rem', fontWeight: 900, color: '#fff' }}>
+              <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 1, mb: 3, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: { xs: '2.6rem', md: '4rem' }, fontWeight: 900, color: '#fff' }}>
                   {primaryPriceLabel}
                 </Typography>
-                <Typography sx={{ fontSize: '1.2rem', color: '#9ca3af' }}>/month</Typography>
+                <Typography sx={{ fontSize: { xs: '0.9rem', md: '1.2rem' }, color: '#9ca3af' }}>/month</Typography>
               </Box>
-              {showConverted && (
+              {showConversionBlock && (
                 <Box sx={{ textAlign: 'center', mb: 2 }}>
                   <Typography sx={{ color: '#9ca3af', fontSize: '0.95rem', fontWeight: 600 }}>
                     {`Billed as ${billedPriceLabel} GBP`}
                   </Typography>
                   <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', mt: 0.5 }}>
-                    {`Price shown is an estimate. You will be charged ${billedPriceLabel} GBP. Your bank may apply exchange rate fees.`}
+                    {`Price shown is an estimate; you will be charged ${billedPriceLabel} GBP and your bank may apply exchange rate fees.`}
                   </Typography>
                   {currencyMeta && (
                     <Typography sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem', mt: 0.6 }}>
@@ -355,7 +357,7 @@ function PaywallContent() {
                     component="span"
                     sx={{ display: 'inline-flex', alignItems: 'center', gap: 1, color: '#16a34a', fontWeight: 800, fontSize: '1rem', mb: 2 }}
                   >
-                    ✅ Full Access Active
+                    Full Access Active
                   </Typography>
                   <Typography sx={{ display: 'block', mt: 1 }}>
                     <Box
@@ -401,10 +403,10 @@ function PaywallContent() {
                       '&:hover': { backgroundColor: '#137f2d', transform: 'none' },
                     }}
                   >
-                    {isLoading ? 'Processing...' : 'START PREDICTING NOW →'}
+                    {isLoading ? 'Processing...' : 'START PREDICTING NOW ->'}
                   </Button>
                   <Typography sx={{ color: '#6b7280', fontSize: '0.8rem', textAlign: 'center', mt: 2 }}>
-                    Cancel anytime • Secure payment by Stripe
+                    Cancel anytime - Secure payment by Stripe
                   </Typography>
                 </>
               )}
@@ -454,11 +456,11 @@ function PaywallContent() {
   );
 }
 
-// ── Page export ───────────────────────────────────────────────────────────────
+// ---- Page export ----
 export default function PaywallPage() {
   return (
     <>
-      {/* useSearchParams isolated in its own Suspense — fixes Vercel build error */}
+      {/* useSearchParams isolated in its own Suspense - fixes Vercel build error */}
       <Suspense fallback={null}>
         <CancelledToast />
       </Suspense>
@@ -479,6 +481,7 @@ export default function PaywallPage() {
     </>
   );
 }
+
 
 
 

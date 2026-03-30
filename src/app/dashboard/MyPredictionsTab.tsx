@@ -83,12 +83,18 @@ const calcAccuracyRatio = (
 ): number | null => {
   const valid = rows.filter((r) => r[predictedField] != null && r[actualField] != null);
   if (valid.length === 0) return null;
-  const predictedTotal = valid.reduce((sum, r) => sum + Number(r[predictedField] ?? 0), 0);
-  const actualTotal = valid.reduce((sum, r) => sum + Number(r[actualField] ?? 0), 0);
-  if (actualTotal <= 0) {
-    return predictedTotal <= 0 ? 100 : 0;
-  }
-  return Math.round((predictedTotal / actualTotal) * 100);
+  const totalAccuracy = valid.reduce((sum, r) => {
+    const predicted = Number(r[predictedField] ?? 0);
+    const actual = Number(r[actualField] ?? 0);
+    if (actual === 0) {
+      return sum + (predicted === 0 ? 1 : 0);
+    }
+    const error = Math.abs(predicted - actual);
+    const accuracy = Math.max(0, 1 - error / actual);
+    return sum + accuracy;
+  }, 0);
+
+  return Math.round((totalAccuracy / valid.length) * 100);
 };
 
 function useAnimatedNumber(target: number, durationMs = 900) {

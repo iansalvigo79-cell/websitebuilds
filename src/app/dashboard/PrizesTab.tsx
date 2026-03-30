@@ -252,7 +252,7 @@ export default function PrizesTab() {
                       '&:hover': { background: '#f59e0b' },
                     }}
                   >
-                    Upgrade - \u00A35/month
+                    Upgrade - £5/month
                   </Button>
                 </Stack>
               </CardContent>
@@ -303,14 +303,14 @@ export default function PrizesTab() {
                         overflow: 'hidden',
                         '&::before': isLocked
                           ? {
-                              content: '""',
-                              position: 'absolute',
-                              inset: 0,
-                              background:
-                                'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.012) 8px, rgba(255,255,255,0.012) 16px)',
-                              pointerEvents: 'none',
-                              zIndex: 0,
-                            }
+                            content: '""',
+                            position: 'absolute',
+                            inset: 0,
+                            background:
+                              'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(255,255,255,0.012) 8px, rgba(255,255,255,0.012) 16px)',
+                            pointerEvents: 'none',
+                            zIndex: 0,
+                          }
                           : undefined,
                       }}
                     >
@@ -437,7 +437,7 @@ export default function PrizesTab() {
                   {
                     n: '03',
                     title: 'Win prizes',
-                    desc: 'Top scorers in each period are awarded by the admin',
+                    desc: 'Lots of different ways to win exciting prizes',
                   },
                 ].map((step) => (
                   <Grid item xs={12} sm={4} key={step.n}>

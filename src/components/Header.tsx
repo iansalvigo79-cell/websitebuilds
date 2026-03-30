@@ -379,7 +379,36 @@ export default function Header() {
                   },
                 }}
               >
-                Join Now
+                Play for Free
+              </Button>
+
+              <Button
+                component={Link}
+                href="/paywall"
+                variant="contained"
+                sx={{
+                  backgroundColor: '#16a34a',
+                  color: '#000',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  borderRadius: '25px',
+                  padding: { xs: '8px 16px', md: '10px 24px' },
+                  boxShadow: '0 4px 12px rgba(22, 163, 74, 0.28)',
+                  fontSize: { xs: '0.8rem', md: '0.95rem' },
+                  transition: 'background-color 0.3s ease',
+                  '&:hover': {
+                    backgroundColor: '#137f2d',
+                    transform: 'none',
+                  },
+                  '&:active': {
+                    transform: 'none',
+                  },
+                  '&:focus-visible': {
+                    transform: 'none',
+                  },
+                }}
+              >
+                Subscription
               </Button>
             </Box>
           )}

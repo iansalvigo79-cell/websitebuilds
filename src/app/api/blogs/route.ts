@@ -48,12 +48,34 @@ export async function GET(req: NextRequest) {
     const category = searchParams.get('category');
     const limit = parseInt(searchParams.get('limit') || '50');
     const offset = parseInt(searchParams.get('offset') || '0');
+    const includeDraftsParam = (searchParams.get('includeDrafts') || '').toLowerCase();
+    const includeDrafts = includeDraftsParam === 'true' || includeDraftsParam === '1';
 
-    let query = supabase
+    let isAdmin = false;
+    if (includeDrafts) {
+      const authHeader = req.headers.get('authorization');
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        const userId = extractUserIdFromToken(token);
+        if (userId) {
+          const { data: profile } = await adminSupabase
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .single();
+          isAdmin = !!profile && profile.role === 1;
+        }
+      }
+    }
+
+    let query = adminSupabase
       .from('blogs')
       .select('*')
-      .eq('is_published', true)
       .order('created_at', { ascending: false });
+
+    if (!(includeDrafts && isAdmin)) {
+      query = query.eq('is_published', true);
+    }
 
     if (category) {
       query = query.eq('category', category);

@@ -109,6 +109,7 @@ export default function AdminPage() {
   const [blogsLoading, setBlogsLoading] = useState(false);
   const [blogDialogOpen, setBlogDialogOpen] = useState(false);
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
+  const [publishingBlogId, setPublishingBlogId] = useState<string | null>(null);
   const [blogForm, setBlogForm] = useState({
     title: '',
     description: '',
@@ -421,7 +422,11 @@ export default function AdminPage() {
   const fetchBlogsList = useCallback(async () => {
     setBlogsLoading(true);
     try {
-      const res = await fetch('/api/blogs?limit=100');
+      const token = await getSession();
+      const res = await fetch('/api/blogs?limit=100&includeDrafts=true', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error('Failed to fetch blogs');
       const { blogs } = await res.json();
       setBlogsList(blogs || []);
@@ -1116,13 +1121,15 @@ export default function AdminPage() {
       const method = editingBlogId ? 'PUT' : 'POST';
       const url = editingBlogId ? `/api/blogs/${editingBlogId}` : '/api/blogs';
 
+      const payload = editingBlogId ? blogForm : { ...blogForm, is_published: false };
+
       const res = await fetch(url, {
         method,
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify(blogForm),
+        body: JSON.stringify(payload),
       });
 
       console.log('response', res);
@@ -1180,6 +1187,38 @@ export default function AdminPage() {
     }
   };
 
+  const handlePublishBlog = async (blogId: string) => {
+    try {
+      setPublishingBlogId(blogId);
+      const token = await getSession();
+      if (!token) {
+        throw new Error('Session expired. Please login again.');
+      }
+
+      const res = await fetch(`/api/blogs/${blogId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ is_published: true }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to publish blog');
+      }
+
+      toast.success('Blog published successfully!');
+      fetchBlogsList();
+    } catch (err) {
+      console.error('Error publishing blog:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to publish blog');
+    } finally {
+      setPublishingBlogId(null);
+    }
+  };
+
   const handleEditBlog = (blog: Blog) => {
     setBlogForm({
       title: blog.title,
@@ -1208,6 +1247,8 @@ export default function AdminPage() {
   const filteredTeams = teamsList
     .filter((t) => t.name.toLowerCase().includes(teamSearchInput.trim().toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const pendingBlogs = blogsList.filter((blog) => !blog.is_published);
+  const publishedBlogs = blogsList.filter((blog) => blog.is_published);
 
   if (isLoading) {
     return (
@@ -3052,66 +3093,153 @@ export default function AdminPage() {
                 <Typography sx={{ color: '#64748b' }}>No blogs yet. Create one to get started.</Typography>
               </Box>
             ) : (
-              <TableContainer sx={{ border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: 2, overflow: 'hidden' }}>
-                <Table>
-                  <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
-                    <TableRow>
-                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Title</TableCell>
-                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Category</TableCell>
-                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Author</TableCell>
-                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Views</TableCell>
-                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Status</TableCell>
-                      <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {blogsList.map((blog) => (
-                      <TableRow key={blog.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.05)' } }}>
-                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {blog.title}
-                        </TableCell>
-                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
-                          <Chip label={blog.category} size="small" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#e2e8f0' }} />
-                        </TableCell>
-                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
-                          {blog.author}
-                        </TableCell>
-                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
-                          {blog.views}
-                        </TableCell>
-                        <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
-                          <Chip
-                            label={blog.is_published ? 'Published' : 'Draft'}
-                            size="small"
-                            sx={{
-                              backgroundColor: blog.is_published ? 'rgba(22, 163, 74, 0.25)' : 'rgba(100, 116, 139, 0.25)',
-                              color: blog.is_published ? '#16a34a' : '#94a3b8',
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell sx={{ borderColor: 'rgba(100, 116, 139, 0.2)' }}>
-                          <Stack direction="row" spacing={1}>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleEditBlog(blog)}
-                              sx={{ color: '#3b82f6' }}
-                            >
-                              <EditIcon sx={{ fontSize: '1rem' }} />
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleDeleteBlog(blog.id)}
-                              sx={{ color: '#ef4444' }}
-                            >
-                              <DeleteIcon sx={{ fontSize: '1rem' }} />
-                            </IconButton>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              <Stack spacing={3}>
+                <Box>
+                  <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 1.5 }}>Pending Blogs</Typography>
+                  {pendingBlogs.length === 0 ? (
+                    <Box sx={{ p: 2.5, backgroundColor: 'rgba(100, 116, 139, 0.08)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.18)', textAlign: 'center' }}>
+                      <Typography sx={{ color: '#64748b' }}>No pending blogs right now.</Typography>
+                    </Box>
+                  ) : (
+                    <TableContainer sx={{ border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <Table>
+                        <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
+                          <TableRow>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Title</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Category</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Author</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Status</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {pendingBlogs.map((blog) => (
+                            <TableRow key={blog.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.05)' } }}>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {blog.title}
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                <Chip label={blog.category} size="small" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#e2e8f0' }} />
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                {blog.author}
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                <Chip
+                                  label="Pending"
+                                  size="small"
+                                  sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#94a3b8' }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                <Stack direction="row" spacing={1}>
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    startIcon={<CheckCircleIcon sx={{ fontSize: '1rem' }} />}
+                                    onClick={() => handlePublishBlog(blog.id)}
+                                    disabled={publishingBlogId === blog.id}
+                                    sx={{
+                                      backgroundColor: '#16a34a',
+                                      color: '#fff',
+                                      fontWeight: 700,
+                                      textTransform: 'none',
+                                      '&:hover': { backgroundColor: '#15803d' },
+                                    }}
+                                  >
+                                    {publishingBlogId === blog.id ? 'Publishing...' : 'Publish'}
+                                  </Button>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleEditBlog(blog)}
+                                    sx={{ color: '#3b82f6' }}
+                                  >
+                                    <EditIcon sx={{ fontSize: '1rem' }} />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleDeleteBlog(blog.id)}
+                                    sx={{ color: '#ef4444' }}
+                                  >
+                                    <DeleteIcon sx={{ fontSize: '1rem' }} />
+                                  </IconButton>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+
+                <Box>
+                  <Typography sx={{ color: '#e2e8f0', fontWeight: 700, mb: 1.5 }}>Published Blogs</Typography>
+                  {publishedBlogs.length === 0 ? (
+                    <Box sx={{ p: 2.5, backgroundColor: 'rgba(100, 116, 139, 0.08)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.18)', textAlign: 'center' }}>
+                      <Typography sx={{ color: '#64748b' }}>No published blogs yet.</Typography>
+                    </Box>
+                  ) : (
+                    <TableContainer sx={{ border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: 2, overflow: 'hidden' }}>
+                      <Table>
+                        <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
+                          <TableRow>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Title</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Category</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Author</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Views</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Status</TableCell>
+                            <TableCell sx={{ color: '#94a3b8', fontWeight: 700, borderColor: 'rgba(100, 116, 139, 0.2)' }}>Actions</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {publishedBlogs.map((blog) => (
+                            <TableRow key={blog.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.05)' } }}>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)', maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {blog.title}
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                <Chip label={blog.category} size="small" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#e2e8f0' }} />
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                {blog.author}
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                {blog.views}
+                              </TableCell>
+                              <TableCell sx={{ color: '#e2e8f0', borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                <Chip
+                                  label="Published"
+                                  size="small"
+                                  sx={{ backgroundColor: 'rgba(22, 163, 74, 0.25)', color: '#16a34a' }}
+                                />
+                              </TableCell>
+                              <TableCell sx={{ borderColor: 'rgba(100, 116, 139, 0.2)' }}>
+                                <Stack direction="row" spacing={1}>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleEditBlog(blog)}
+                                    sx={{ color: '#3b82f6' }}
+                                  >
+                                    <EditIcon sx={{ fontSize: '1rem' }} />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleDeleteBlog(blog.id)}
+                                    sx={{ color: '#ef4444' }}
+                                  >
+                                    <DeleteIcon sx={{ fontSize: '1rem' }} />
+                                  </IconButton>
+                                </Stack>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </Box>
+              </Stack>
             )}
           </Box>
         </TabPanel>
@@ -3446,17 +3574,20 @@ export default function AdminPage() {
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
               />
-              <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Chip
-                  label={blogForm.is_published ? 'Published' : 'Draft'}
-                  onClick={() => setBlogForm({ ...blogForm, is_published: !blogForm.is_published })}
+                  label={blogForm.is_published ? 'Published' : 'Pending'}
                   sx={{
                     backgroundColor: blogForm.is_published ? 'rgba(22, 163, 74, 0.25)' : 'rgba(100, 116, 139, 0.25)',
                     color: blogForm.is_published ? '#16a34a' : '#94a3b8',
-                    cursor: 'pointer',
                     fontWeight: 700,
                   }}
                 />
+                <Typography sx={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                  {blogForm.is_published
+                    ? 'Published blogs are live on the public blog page.'
+                    : 'Pending blogs can be published from the Pending table.'}
+                </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
                 <Button 

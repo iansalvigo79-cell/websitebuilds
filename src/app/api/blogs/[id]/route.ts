@@ -39,19 +39,43 @@ function extractUserIdFromToken(token: string): string | null {
  * Get a single blog and increment view count
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    const includeDraftsParam = (searchParams.get('includeDrafts') || '').toLowerCase();
+    const includeDrafts = includeDraftsParam === 'true' || includeDraftsParam === '1';
+
+    let isAdmin = false;
+    if (includeDrafts) {
+      const authHeader = req.headers.get('authorization');
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        const userId = extractUserIdFromToken(token);
+        if (userId) {
+          const { data: profile } = await adminSupabase
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .single();
+          isAdmin = !!profile && profile.role === 1;
+        }
+      }
+    }
 
     // Get blog and increment views
-    const { data: blog, error: fetchError } = await supabase
+    let query = adminSupabase
       .from('blogs')
       .select('*')
-      .eq('id', id)
-      .eq('is_published', true)
-      .single();
+      .eq('id', id);
+
+    if (!(includeDrafts && isAdmin)) {
+      query = query.eq('is_published', true);
+    }
+
+    const { data: blog, error: fetchError } = await query.single();
 
     if (fetchError || !blog) {
       return NextResponse.json(
@@ -61,7 +85,7 @@ export async function GET(
     }
 
     // Increment views
-    await supabase
+    await adminSupabase
       .from('blogs')
       .update({ views: (blog.views || 0) + 1 })
       .eq('id', id);

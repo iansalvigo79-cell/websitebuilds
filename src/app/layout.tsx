@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     type: 'website',
     images: [
       {
-        url: '/Goalactico.png',
+        url: '/assets/og-image.png',
         width: 1200,
         height: 630,
         alt: 'Goalactico',
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Goalactico',
     description: defaultDescription,
-    images: ['/Goalactico.png'],
+    images: ['/assets/og-image.png'],
   },
   robots: {
     index: true,

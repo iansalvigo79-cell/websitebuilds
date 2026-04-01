@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-type PageKey = 'home' | 'prizes' | 'how-to-play' | 'blog';
+type PageKey = 'home' | 'prizes' | 'help' | 'blog';
 
 const DEFAULT_OG_IMAGE = '/assets/images/og-image.png';
 
@@ -52,7 +52,7 @@ const PAGE_METADATA = {
       images: [DEFAULT_OG_IMAGE],
     },
   },
-  'how-to-play': {
+  'help': {
     title: 'How Football Prediction Games Work | Goalactico Guide',
     description:
       'Simple guide to playing our football prediction game. No betting, just skill-based scoring and leaderboard competition.',

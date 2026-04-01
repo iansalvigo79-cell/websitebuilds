@@ -2,7 +2,13 @@ import type { Metadata } from 'next';
 
 type PageKey = 'home' | 'prizes' | 'help' | 'blog';
 
-const DEFAULT_OG_IMAGE = '/assets/images/og-image.png';
+// const DEFAULT_OG_IMAGE = '/assets/images/og-image.png';
+const DEFAULT_OG_IMAGE = {
+  url: '/assets/images/og-image.png',
+  width: 1200,
+  height: 630,
+  alt: 'Goalactico - Predict the Game and Win Rewards',
+};
 
 const PAGE_METADATA = {
   home: {

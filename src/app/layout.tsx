@@ -1,78 +1,66 @@
-'use client';
-
 import './globals.css';
-import { CssBaseline } from '@mui/material';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import { ReactNode, useEffect, useState } from 'react';
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
-import SessionManager from '@/components/SessionManager';
+import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
+import AppShell from '@/components/AppShell';
 
-const theme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      // Natural grass/forest green used across the UI
-      main: '#16a34a',
-    },
-    secondary: {
-      main: '#22c55e',
-    },
-    background: {
-      default: '#0a0a0a',
-      paper: '#111111',
-    },
-    text: {
-      primary: '#ffffff',
-      secondary: '#ffffff',
+const defaultDescription =
+  'Goalactico is a free football prediction game where you predict total goals, climb the leaderboard, and win prizes — a skill-based competition with no betting.';
+
+export const metadata: Metadata = {
+  metadataBase: new URL('https://www.goalactico.net'),
+  title: {
+    default: 'Goalactico',
+    template: '%s | Goalactico',
+  },
+  description: defaultDescription,
+  keywords: [
+    'football prediction game',
+    'free football prediction game',
+    'predict football scores',
+    'predict total goals',
+    'football prediction competition',
+    'football prediction game with prizes',
+    'skill-based football predictions',
+    'no betting football predictions',
+    'football score predictions',
+  ],
+  openGraph: {
+    title: 'Goalactico',
+    description: defaultDescription,
+    url: 'https://www.goalactico.net',
+    siteName: 'Goalactico',
+    locale: 'en_GB',
+    type: 'website',
+    images: [
+      {
+        url: '/Goalactico.png',
+        width: 1200,
+        height: 630,
+        alt: 'Goalactico',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Goalactico',
+    description: defaultDescription,
+    images: ['/Goalactico.png'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
     },
   },
-  typography: {
-    fontFamily: '"Inter", "Roboto", sans-serif',
-    h1: {
-      fontFamily: '"Chakra Petch", "Bebas Neue", sans-serif',
-      fontSize: '2.5rem',
-      fontWeight: 900,
-      letterSpacing: 0.5,
-    },
-    h2: {
-      fontFamily: '"Chakra Petch", "Bebas Neue", sans-serif',
-      fontSize: '2rem',
-      fontWeight: 900,
-    },
-    h3: {
-      fontFamily: '"Chakra Petch", "Bebas Neue", sans-serif',
-      fontSize: '1.5rem',
-      fontWeight: 900,
-    },
-    h4: {
-      fontFamily: '"Chakra Petch", "Bebas Neue", sans-serif',
-      fontWeight: 900,
-    },
-    h5: {
-      fontFamily: '"Chakra Petch", "Bebas Neue", sans-serif',
-      fontWeight: 900,
-    },
-    h6: {
-      fontFamily: '"Chakra Petch", "Bebas Neue", sans-serif',
-      fontWeight: 900,
-    },
-  },
-});
+};
 
 export default function RootLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    // Trigger page load animation when client mounts
-    setIsMounted(true);
-  }, []);
   return (
     <html lang="en">
       <head>
@@ -81,33 +69,9 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {/* <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700;900&family=Bebas+Neue&family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet" /> */}
         <link rel="icon" type="image/png" href="/assets/images/logo.png" />
-        <title>GamePredict - Football Game Predictions</title>
-        <meta name="description" content="AI-powered football game predictions" />
       </head>
       <body>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
-          <SessionManager />
-          <div className={`app-root ${isMounted ? 'is-mounted' : ''}`} style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0a0a0a' }}>
-            <Header />
-            <div style={{ flex: 1 }}>
-              {children}
-            </div>
-            <Footer />
-          </div>
-          <ToastContainer
-            position="top-right"
-            autoClose={3000}
-            hideProgressBar={false}
-            newestOnTop={false}
-            closeOnClick
-            rtl={false}
-            pauseOnFocusLoss
-            draggable
-            pauseOnHover
-            theme="dark"
-          />
-        </ThemeProvider>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

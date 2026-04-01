@@ -1,13 +1,14 @@
-import './globals.css';
+﻿import './globals.css';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import AppShell from '@/components/AppShell';
 
+const BASE_URL = 'https://www.goalactico.net';
 const defaultDescription =
   'Goalactico is a free football prediction game where you predict total goals, climb the leaderboard, and win prizes — a skill-based competition with no betting.';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://www.goalactico.net'),
+  metadataBase: new URL(BASE_URL),
   title: {
     default: 'Goalactico',
     template: '%s | Goalactico',
@@ -27,13 +28,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Goalactico',
     description: defaultDescription,
-    url: 'https://www.goalactico.net',
+    url: BASE_URL,
     siteName: 'Goalactico',
     locale: 'en_GB',
     type: 'website',
     images: [
       {
-        url: '/assets/og-image.png',
+        url: `${BASE_URL}/assets/images/og-image.png`,
         width: 1200,
         height: 630,
         alt: 'Goalactico',
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Goalactico',
     description: defaultDescription,
-    images: ['/assets/og-image.png'],
+    images: [`${BASE_URL}/assets/images/og-image.png`],
   },
   robots: {
     index: true,

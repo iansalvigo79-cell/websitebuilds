@@ -1,14 +1,15 @@
-'use client';
+import type { Metadata } from 'next';
+import { createPageMetadata } from '@/lib/seo';
+import BlogPageContent from '@/components/BlogPage';
 
-import { Box, Container } from '@mui/material';
-import BlogsTab from '../dashboard/BlogsTab';
+export async function generateMetadata(): Promise<Metadata> {
+  return createPageMetadata('blog', {
+    title: 'Football Blog: Goals, Stats, Predictions & Matchday Insights',
+    description:
+      'Read football insights, goal trends and matchday breakdowns. Think you can predict the game? Start spotting high-scoring matches.',
+  });
+}
 
 export default function BlogPage() {
-  return (
-    <Box sx={{ backgroundColor: '#0a0a0f', minHeight: '100vh' }}>
-      <Container maxWidth="xl" sx={{ py: { xs: 4, md: 6 } }}>
-        <BlogsTab />
-      </Container>
-    </Box>
-  );
+  return <BlogPageContent />;
 }

@@ -13,10 +13,26 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { createPageMetadata } from '@/lib/seo';
 
 export default function Hero() {
   const router = useRouter();
   const [isAuthed, setIsAuthed] = useState(false);
+  const homeMetadata = createPageMetadata('home');
+  const heroTitle =
+    typeof homeMetadata.title === 'string'
+      ? homeMetadata.title
+      : 'Football Prediction Competition | Play Free & Win Rewards';
+  const [heroTitleMain, heroTitleAccent] = heroTitle.split(' | ');
+  const heroDescription =
+    typeof homeMetadata.description === 'string'
+      ? homeMetadata.description
+      : 'Play a free football prediction game. Predict total goals, climb the leaderboard and win rewards with Goalactico.';
+  const heroKeywords = Array.isArray(homeMetadata.keywords)
+    ? homeMetadata.keywords
+    : typeof homeMetadata.keywords === 'string'
+      ? homeMetadata.keywords.split(',').map((keyword) => keyword.trim()).filter(Boolean)
+      : [];
 
   useEffect(() => {
     let active = true;
@@ -108,26 +124,20 @@ export default function Hero() {
                 textTransform: 'uppercase',
               }}
             >
-              Predict
-              <Box component="span" sx={{ display: 'block' }}>
-                <motion.span
-                  className="hero-title-part"
-                  initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
-                >
-                  THE
-                </motion.span>
-                <motion.span
-                  className="hero-title-part"
-                  style={{ marginLeft: 6, display: 'inline-block', color: '#16a34a', fontWeight: 900, fontSize: 'inherit' }}
-                  initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: 0.25 }}
-                >
-                  {' '}GAME
-                </motion.span>
-              </Box>
+              {heroTitleMain}
+              {heroTitleAccent && (
+                <Box component="span" sx={{ display: 'block' }}>
+                  <motion.span
+                    className="hero-title-part"
+                    style={{ display: 'inline-block', color: '#16a34a', fontWeight: 900, fontSize: 'inherit' }}
+                    initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: 0.25 }}
+                  >
+                    {heroTitleAccent}
+                  </motion.span>
+                </Box>
+              )}
             </Typography>
           </Box>
 
@@ -144,8 +154,31 @@ export default function Hero() {
               letterSpacing: 0.5,
             }}
           >
-            Make smart predictions, track performance, and compete with others. Test your football knowledge, think strategically, and climb the leaderboard through skill, not luck alone.
+            {heroDescription}
           </Typography>
+
+          {heroKeywords.length > 0 && (
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              {heroKeywords.map((keyword) => (
+                <Box
+                  key={keyword}
+                  sx={{
+                    px: 1.2,
+                    py: 0.4,
+                    borderRadius: 999,
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    color: '#e2e8f0',
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.6,
+                  }}
+                >
+                  {keyword}
+                </Box>
+              ))}
+            </Stack>
+          )}
 
           {/* CTA Buttons */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 2, md: 2 }} sx={{ pt: 2, width: '100%' }}>

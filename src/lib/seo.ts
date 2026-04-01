@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 
 type PageKey = 'home' | 'prizes' | 'help' | 'blog';
 
-const DEFAULT_OG_IMAGE_URL = '/assets/images/og-image.png';
+const BASE_URL = 'https://www.goalactico.net';
+const DEFAULT_OG_IMAGE_URL = `${BASE_URL}/assets/images/og-image.png`;
 const DEFAULT_OG_IMAGE = [
   {
     url: DEFAULT_OG_IMAGE_URL,

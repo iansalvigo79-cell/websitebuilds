@@ -121,14 +121,14 @@ export function createPageMetadata(
       ...overrides.openGraph,
       title: overrides.openGraph?.title ?? title,
       description: overrides.openGraph?.description ?? description,
-      images: overrides.openGraph?.images ?? base.openGraph?.images ?? [DEFAULT_OG_IMAGE],
+      images: [DEFAULT_OG_IMAGE],
     },
     twitter: {
       ...base.twitter,
       ...overrides.twitter,
       title: overrides.twitter?.title ?? title,
       description: overrides.twitter?.description ?? description,
-      images: overrides.twitter?.images ?? base.twitter?.images ?? [DEFAULT_OG_IMAGE],
+      images: [DEFAULT_OG_IMAGE],
     },
   };
 }

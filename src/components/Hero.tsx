@@ -14,13 +14,6 @@ import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-import { createPageMetadata } from '@/lib/seo';
-import { Metadata } from 'next';
-
-export async function generateMetadata(): Promise<Metadata> {
-  return createPageMetadata('home');
-}
-
 export default function Hero() {
   const router = useRouter();
   const [isAuthed, setIsAuthed] = useState(false);

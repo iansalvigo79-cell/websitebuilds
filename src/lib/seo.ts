@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 
 type PageKey = 'home' | 'prizes' | 'how-to-play' | 'blog';
 
-const DEFAULT_OG_IMAGE = '/og-image.png';
+const DEFAULT_OG_IMAGE = '/assets/images/og-image.png';
 
-const PAGE_METADATA: Record<PageKey, Metadata> = {
+const PAGE_METADATA = {
   home: {
     title: 'Football Prediction Competition | Play Free & Win Rewards',
     description:
@@ -76,8 +76,9 @@ const PAGE_METADATA: Record<PageKey, Metadata> = {
     },
   },
   blog: {
-    title: 'Goalactico Blog',
-    description: 'News, tips, and updates from the Goalactico football prediction community.',
+    title: 'Football Blog: Goals, Stats, Predictions & Matchday Insights',
+    description:
+      'Read football insights, goal trends and matchday breakdowns. Think you can predict the game? Start spotting high-scoring matches.',
     keywords: [
       'football prediction blog',
       'prediction tips',
@@ -85,18 +86,20 @@ const PAGE_METADATA: Record<PageKey, Metadata> = {
       'Goalactico news',
     ],
     openGraph: {
-      title: 'Goalactico Blog',
-      description: 'News, tips, and updates from the Goalactico football prediction community.',
+      title: 'Football Blog: Goals, Stats, Predictions & Matchday Insights',
+      description:
+        'Read football insights, goal trends and matchday breakdowns. Think you can predict the game? Start spotting high-scoring matches.',
       images: [DEFAULT_OG_IMAGE],
     },
     twitter: {
       card: 'summary_large_image',
-      title: 'Goalactico Blog',
-      description: 'News, tips, and updates from the Goalactico football prediction community.',
+      title: 'Football Blog: Goals, Stats, Predictions & Matchday Insights',
+      description:
+        'Read football insights, goal trends and matchday breakdowns. Think you can predict the game? Start spotting high-scoring matches.',
       images: [DEFAULT_OG_IMAGE],
     },
   },
-};
+} satisfies Record<PageKey, Metadata>;
 
 export function createPageMetadata(
   page: PageKey,

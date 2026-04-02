@@ -23,6 +23,9 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import LogoutIcon from '@mui/icons-material/Logout';
+import LoginIcon from '@mui/icons-material/Login';
+import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
+import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
 
 // Pages where the header should be hidden
 const HIDDEN_ROUTES = ['/signin', '/signup'];
@@ -341,22 +344,29 @@ export default function Header() {
                 component={Link}
                 href="/signin"
                 variant="text"
+                aria-label="Log In"
                 sx={{
                   textTransform: 'none',
                   fontWeight: 600,
                   color: '#fff',
                   fontSize: { xs: '0.8rem', md: '0.95rem' },
+                  minWidth: { xs: 40, sm: 'auto' },
+                  px: { xs: 1, sm: 2 },
                   '&:hover': {
                     color: '#16a34a',
                   },
                 }}
               >
-                Log In
+                <LoginIcon sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '1.1rem' }} />
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                  Log In
+                </Box>
               </Button>
               <Button
                 component={Link}
                 href="/signup"
                 variant="contained"
+                aria-label="Play for Free"
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#000',
@@ -364,6 +374,8 @@ export default function Header() {
                   fontWeight: 700,
                   borderRadius: '25px',
                   padding: { xs: '8px 16px', md: '10px 24px' },
+                  minWidth: { xs: 40, sm: 'auto' },
+                  px: { xs: 1.25, sm: 2.5 },
                   boxShadow: '0 4px 12px rgba(22, 163, 74, 0.28)',
                   fontSize: { xs: '0.8rem', md: '0.95rem' },
                   transition: 'background-color 0.3s ease',
@@ -379,13 +391,17 @@ export default function Header() {
                   },
                 }}
               >
-                Play for Free
+                <SportsSoccerIcon sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '1.1rem' }} />
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                  Play for Free
+                </Box>
               </Button>
 
               <Button
                 component={Link}
                 href="/paywall"
                 variant="contained"
+                aria-label="Subscription"
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#000',
@@ -393,6 +409,8 @@ export default function Header() {
                   fontWeight: 700,
                   borderRadius: '25px',
                   padding: { xs: '8px 16px', md: '10px 24px' },
+                  minWidth: { xs: 40, sm: 'auto' },
+                  px: { xs: 1.25, sm: 2.5 },
                   boxShadow: '0 4px 12px rgba(22, 163, 74, 0.28)',
                   fontSize: { xs: '0.8rem', md: '0.95rem' },
                   transition: 'background-color 0.3s ease',
@@ -408,7 +426,10 @@ export default function Header() {
                   },
                 }}
               >
-                Subscription
+                <WorkspacePremiumIcon sx={{ display: { xs: 'block', sm: 'none' }, fontSize: '1.1rem' }} />
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                  Subscription
+                </Box>
               </Button>
             </Box>
           )}

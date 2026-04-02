@@ -1,6 +1,7 @@
 ﻿'use client';
 
-import { Box, Container, Typography, Link, Grid, Divider } from '@mui/material';
+import { Box, Container, Typography, Link as MuiLink, Grid, Divider } from '@mui/material';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 // Pages where the footer should be hidden
@@ -33,15 +34,15 @@ export default function Footer() {
               Product
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: { xs: 'center', sm: 'flex-start' } }}>
-              <Link href="/how-to-play" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              <MuiLink component={Link} href="/how-to-play" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 How to Play
-              </Link>
-              <Link href="/prize-games" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              </MuiLink>
+              <MuiLink component={Link} href="/prize-games" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Prizes
-              </Link>
-              <Link href="/paywall" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              </MuiLink>
+              <MuiLink component={Link} href="/paywall" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Subscription
-              </Link>
+              </MuiLink>
             </Box>
           </Grid>
 
@@ -50,12 +51,12 @@ export default function Footer() {
               Company
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: { xs: 'center', sm: 'flex-start' } }}>
-              <Link href="/blog" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              <MuiLink component={Link} href="/blog" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Blog
-              </Link>
-              <Link href="/contact" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              </MuiLink>
+              <MuiLink component={Link} href="/contact" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Contact
-              </Link>
+              </MuiLink>
             </Box>
           </Grid>
 
@@ -64,12 +65,12 @@ export default function Footer() {
               Legal
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: { xs: 'center', sm: 'flex-start' } }}>
-              <Link href="/privacy" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              <MuiLink component={Link} href="/privacy" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Privacy
-              </Link>
-              <Link href="/term-of-service" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
+              </MuiLink>
+              <MuiLink component={Link} href="/term-of-service" color="inherit" sx={{ textDecoration: 'none', opacity: 0.8, fontSize: { xs: '0.85rem', md: '0.875rem' }, '&:hover': { opacity: 1 } }}>
                 Terms
-              </Link>
+              </MuiLink>
             </Box>
           </Grid>
         </Grid>
@@ -85,4 +86,3 @@ export default function Footer() {
     </Box>
   );
 }
-

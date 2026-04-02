@@ -11,6 +11,7 @@ import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
@@ -158,7 +159,8 @@ export default function Hero() {
                 variant="contained"
                 size="large"
                 endIcon={<ArrowForwardIcon />}
-                onClick={() => router.push(isAuthed ? '/dashboard' : '/signin')}
+                component={Link}
+                href={isAuthed ? '/dashboard' : '/signin'}
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#0f0505',
@@ -194,7 +196,7 @@ export default function Hero() {
               <Button
                 variant="contained"
                 size="large"
-                onClick={handleFaqClick}
+                onClick={handleFaqClick}                                                                                 
                 sx={{
                   backgroundColor: 'transparent',
                   color: '#ffffff',

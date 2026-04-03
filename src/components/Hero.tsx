@@ -188,42 +188,84 @@ export default function Hero() {
                 {isAuthed ? 'Start Predicting' : 'Start Playing'}
               </Button>
             </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.45 }}
-            >
-              <Button
-                variant="contained"
-                size="large"
-                onClick={handleFaqClick}                                                                                 
-                sx={{
-                  backgroundColor: 'transparent',
-                  color: '#ffffff',
-                  outline: '2px solid #ffffff',
-                  fontWeight: 900,
-                  fontSize: { xs: '0.9rem', md: '1.05rem' },
-                  padding: { xs: '14px 24px', md: '16px 40px' },
-                  borderRadius: '10px',
-                  textTransform: 'uppercase',
-                  letterSpacing: 1.2,
-                  transition: 'background-color 0.3s ease',
-                  width: { xs: '100%', sm: 'fit-content' },
-                  '&:hover': {
-                    backgroundColor: 'transparent',
-                    transform: 'none',
-                  },
-                  '&:active': {
-                    transform: 'none',
-                  },
-                  '&:focus-visible': {
-                    transform: 'none',
-                  },
-                }}
+            {!isAuthed && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.45 }}
               >
-                How it works
-              </Button>
-            </motion.div>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  component={Link}
+                  href="/signup?plan=pro"
+                  sx={{
+                    borderColor: '#16a34a',
+                    color: '#16a34a',
+                    fontWeight: 900,
+                    fontSize: { xs: '0.9rem', md: '1.05rem' },
+                    padding: { xs: '14px 24px', md: '16px 40px' },
+                    borderRadius: '10px',
+                    textTransform: 'uppercase',
+                    letterSpacing: 1.2,
+                    transition: 'border-color 0.3s ease, color 0.3s ease',
+                    width: { xs: '100%', sm: 'fit-content' },
+                    '&:hover': {
+                      borderColor: '#137f2d',
+                      color: '#137f2d',
+                      backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                      transform: 'none',
+                    },
+                    '&:active': {
+                      transform: 'none',
+                    },
+                    '&:focus-visible': {
+                      transform: 'none',
+                    },
+                  }}
+                >
+                  Subscribe Now
+                </Button>
+              </motion.div>
+            )}
+            {isAuthed && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.45 }}
+              >
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={handleFaqClick}
+                  sx={{
+                    backgroundColor: 'transparent',
+                    color: '#ffffff',
+                    outline: '2px solid #ffffff',
+                    fontWeight: 900,
+                    fontSize: { xs: '0.9rem', md: '1.05rem' },
+                    padding: { xs: '14px 24px', md: '16px 40px' },
+                    borderRadius: '10px',
+                    textTransform: 'uppercase',
+                    letterSpacing: 1.2,
+                    transition: 'background-color 0.3s ease',
+                    width: { xs: '100%', sm: 'fit-content' },
+                    '&:hover': {
+                      backgroundColor: 'transparent',
+                      transform: 'none',
+                    },
+                    '&:active': {
+                      transform: 'none',
+                    },
+                    '&:focus-visible': {
+                      transform: 'none',
+                    },
+                  }}
+                >
+                  How it works
+                </Button>
+              </motion.div>
+            )}
           </Stack>
         </Stack>
       </Container>

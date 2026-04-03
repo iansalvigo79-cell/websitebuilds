@@ -4,7 +4,7 @@ import { Box, Button, Container, MenuItem, TextField, Typography, Stack, Checkbo
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import Link from 'next/link';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-toastify';
 import ModernLoader from '@/components/ui/ModernLoader';
@@ -26,6 +26,9 @@ const COUNTRY_CODES: CountryCodeOption[] = allCountries
 
 export default function SignUpPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const planParam = (searchParams.get('plan') || '').toLowerCase();
+  const isProSignup = planParam === 'pro';
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -202,6 +205,48 @@ export default function SignUpPage() {
         }).catch((err) => {
           console.warn('Welcome email failed:', err);
         });
+
+        if (isProSignup) {
+          toast.success('Account created! Redirecting to checkout...');
+
+          const { data: { session } } = await supabase.auth.getSession();
+          let accessToken = authData.session?.access_token || session?.access_token || null;
+
+          if (!accessToken) {
+            const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+              email: formData.email,
+              password: formData.password,
+            });
+            if (signInError || !signInData.session?.access_token) {
+              toast.error('Please sign in to continue your subscription.');
+              router.push('/signin');
+              return;
+            }
+            accessToken = signInData.session.access_token;
+          }
+
+          const res = await fetch('/api/stripe/checkout', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            toast.error(data.error || 'Checkout failed');
+            return;
+          }
+          if (data.url) {
+            try {
+              await fetch('/api/stripe/webhook');
+            } catch { }
+            window.location.href = data.url;
+            return;
+          }
+          toast.error('Checkout URL not returned');
+          return;
+        }
 
         toast.success('Account created successfully! Redirecting to login...');
         setTimeout(() => {

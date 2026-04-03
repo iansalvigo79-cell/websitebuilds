@@ -279,10 +279,6 @@ function PaywallContent() {
         return;
       }
       if (data.url) {
-        // inform webhook endpoint of pending subscription event (await so request completes)
-        try {
-          await fetch('/api/stripe/webhook');
-        } catch { }
         window.location.href = data.url;
       } else {
         toast.error('Checkout URL not returned');

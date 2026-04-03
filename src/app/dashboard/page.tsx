@@ -16,17 +16,39 @@ function SubscriptionSuccessBanner({ onShow }: { onShow: () => void }) {
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (searchParams.get('subscription') === 'success') {
-      onShow();
-      if (typeof window === 'undefined') return;
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('subscription');
-        window.history.replaceState({}, '', url.pathname + url.search);
-      } catch (err) {
-        console.warn('Failed to clean subscription param:', err);
+    const handleSubscriptionSuccess = async () => {
+      if (searchParams.get('subscription') === 'success') {
+        onShow();
+
+        // In development, manually update the database since webhooks may not be configured
+        if (process.env.NODE_ENV === 'development') {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              console.log('🧪 Development: Manually updating subscription status for user', user.id);
+              await fetch('/api/stripe/test-webhook', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id }),
+              });
+            }
+          } catch (err) {
+            console.warn('Failed to update subscription status:', err);
+          }
+        }
+
+        if (typeof window === 'undefined') return;
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('subscription');
+          window.history.replaceState({}, '', url.pathname + url.search);
+        } catch (err) {
+          console.warn('Failed to clean subscription param:', err);
+        }
       }
-    }
+    };
+
+    handleSubscriptionSuccess();
   }, [searchParams, onShow]);
 
   return null;

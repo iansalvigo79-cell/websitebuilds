@@ -160,7 +160,7 @@ export default function Hero() {
                 size="large"
                 endIcon={<ArrowForwardIcon />}
                 component={Link}
-                href={isAuthed ? '/dashboard' : '/signin'}
+                href={isAuthed ? '/dashboard' : '/signup'}
                 sx={{
                   backgroundColor: '#16a34a',
                   color: '#0f0505',

@@ -399,7 +399,7 @@ export default function Header() {
 
               <Button
                 component={Link}
-                href="/paywall"
+                href="/signup?plan=pro"
                 variant="contained"
                 aria-label="Subscription"
                 sx={{

@@ -250,9 +250,14 @@ function PaywallContent() {
     setIsLoading(true);
     try {
       if (!user) {
-        toast.error('User not found');
-        setIsLoading(false);
-        return;
+        const { data: { user: freshUser } } = await supabase.auth.getUser();
+        if (!freshUser) {
+          toast.info('Please sign in to continue');
+          router.push('/signin');
+          setIsLoading(false);
+          return;
+        }
+        setUser(freshUser);
       }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
@@ -330,6 +335,16 @@ function PaywallContent() {
       <ModernLoader
         label="Loading Subscription"
         sublabel="Checking your account status..."
+        minHeight="100vh"
+        sx={{ backgroundColor: '#0a0a0a' }}
+      />
+    );
+  }
+  if (!user) {
+    return (
+      <ModernLoader
+        label="Redirecting..."
+        sublabel="Please sign in to continue."
         minHeight="100vh"
         sx={{ backgroundColor: '#0a0a0a' }}
       />

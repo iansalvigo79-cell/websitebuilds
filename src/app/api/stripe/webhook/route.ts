@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { sendAdminNotification, sendEmail, buildCancellationEmail, buildAdminPaidSignupEmail } from '@/lib/notifications';
 
 /**
  * POST /api/stripe/webhook
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
             subscription_status: 'active',         // ← bonus: tracks status
           })
           .eq('id', userId)
-          .select('id, account_type, stripe_customer_id, stripe_subscription_id');
+          .select('id, email, display_name');
 
         if (updateError) {
           console.error('❌ Supabase update failed:', updateError.message);
@@ -165,6 +166,14 @@ export async function POST(request: NextRequest) {
         }
 
         console.log('✅ Profile updated successfully:', data);
+        try {
+          const displayName = data?.[0]?.display_name || null;
+          const email = data?.[0]?.email || null;
+          const { subject, html, text } = buildAdminPaidSignupEmail(displayName, userId, email);
+          await sendAdminNotification(subject, text, html);
+        } catch (notifyErr) {
+          console.warn('⚠️ Paid signup notification failed:', notifyErr);
+        }
         break;
       }
 
@@ -186,6 +195,16 @@ export async function POST(request: NextRequest) {
           break;
         }
 
+        const { data: profileRows, error: profileFetchError } = await supabase
+          .from('profiles')
+          .select('id, email, display_name')
+          .eq('id', profiles[0].id)
+          .limit(1);
+
+        if (profileFetchError) {
+          console.error('❌ Failed to fetch profile for cancellation email:', profileFetchError.message);
+        }
+
         const { error: updateError } = await supabase
           .from('profiles')
           .update({
@@ -199,6 +218,24 @@ export async function POST(request: NextRequest) {
           console.error('❌ Downgrade failed:', updateError.message);
         } else {
           console.log('✅ User downgraded to free:', profiles[0].id);
+          const profile = profileFetchError ? null : profileRows?.[0];
+          if (profile?.email) {
+            try {
+              const { html, text, subject } = buildCancellationEmail(profile.display_name || 'Player');
+              await sendEmail({ to: profile.email, subject, html, text });
+            } catch (notifyErr) {
+              console.warn('⚠️ Cancellation email failed:', notifyErr);
+            }
+          }
+          try {
+            const name = profile?.display_name || 'unknown player';
+            await sendAdminNotification(
+              'Subscription cancelled',
+              `A paid subscription was cancelled for ${name} (user id: ${profiles[0].id}).`,
+            );
+          } catch (notifyErr) {
+            console.warn('⚠️ Admin cancellation notification failed:', notifyErr);
+          }
         }
         break;
       }

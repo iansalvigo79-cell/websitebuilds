@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const resendKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Goalactico <noreply@goalactico.net>';
 
   if (!supabaseUrl || !serviceKey) {
     return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = payload.userId?.trim();
-  const email = payload.email?.trim();
+  const email = "chris.jhon12456@outlook.com";
   const displayName = payload.displayName?.trim() || 'there';
   if (!userId || !email) {
     return NextResponse.json({ error: 'Missing required fields: userId, email' }, { status: 400 });
@@ -108,12 +108,12 @@ export async function POST(request: NextRequest) {
 
   const origin = request.headers.get('origin')
     || process.env.NEXT_PUBLIC_APP_URL
-    || 'https://goalactico.com';
+    || 'https://www.goalactico.net';
 
   const html = buildHtml(displayName, origin);
   const text = buildText(displayName, origin);
 
-    try {
+  try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -121,11 +121,11 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: fromEmail,
-        to: email,
+        from: 'onboarding@resend.dev',
+        to: 'chris.jhon12456@outlook.com',
         subject: SUBJECT,
-        html,
-        text,
+        html: html,
+        text: text,
       }),
     });
 
@@ -137,6 +137,7 @@ export async function POST(request: NextRequest) {
         reason: err?.message || 'Failed to send email',
       });
     }
+
   } catch (err) {
     return NextResponse.json({
       success: false,

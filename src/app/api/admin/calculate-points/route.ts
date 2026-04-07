@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { calculatePoints } from '@/lib/pointsCalculator';
+import { sendAdminNotification, sendEmail, buildMatchdayResultsEmail, buildAdmin40PointEmail } from '@/lib/notifications';
 
 /**
  * POST /api/admin/calculate-points
@@ -89,12 +90,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let matchDays: { id: string; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
+    let matchDays: { id: string; name?: string | null; match_date?: string | null; actual_total_goals: number | null; ht_goals: number | null; total_corners: number | null; ht_corners: number | null }[];
 
     if (body.matchDayId) {
       const { data, error } = await supabase
         .from('match_days')
-        .select('id, actual_total_goals, ht_goals, total_corners, ht_corners')
+        .select('id, name, match_date, actual_total_goals, ht_goals, total_corners, ht_corners')
         .eq('id', body.matchDayId)
         .limit(1);
 
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
     } else {
       const { data, error } = await supabase
         .from('match_days')
-        .select('id, actual_total_goals, ht_goals, total_corners, ht_corners')
+        .select('id, name, match_date, actual_total_goals, ht_goals, total_corners, ht_corners')
         .or('actual_total_goals.not.is.null,ht_goals.not.is.null,total_corners.not.is.null,ht_corners.not.is.null');
 
       if (error) {
@@ -115,17 +116,21 @@ export async function POST(request: NextRequest) {
     }
 
     let totalUpdated = 0;
+    const userIds = new Set<string>();
+    const matchDayTitles: string[] = [];
+    const fortyPointAchievements: Array<{ user_id: string; match_day_id: string; totalPoints: number }> = [];
 
     for (const md of matchDays) {
       const actual = md.actual_total_goals;
       const htGoals = md.ht_goals;
       const totalCorners = md.total_corners;
       const htCorners = md.ht_corners;
+      matchDayTitles.push(md.name || md.match_date || md.id);
 
       let predictions: any[] | null = null;
       const { data: primaryPreds, error: fetchErr } = await supabase
         .from('predictions')
-        .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ht_goals, predicted_ft_corners, predicted_total_corners, predicted_ht_corners')
+        .select('id, user_id, match_day_id, points, ht_goals_points, corners_points, ht_corners_points, predicted_total_goals, predicted_half_time_goals, predicted_ht_goals, predicted_ft_corners, predicted_total_corners, predicted_ht_corners')
         .eq('match_day_id', md.id);
 
       if (!fetchErr) {
@@ -133,14 +138,14 @@ export async function POST(request: NextRequest) {
       } else {
         const { data: fallbackData, error: fallbackErr } = await supabase
           .from('predictions')
-          .select('id, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
+          .select('id, user_id, match_day_id, points, ht_goals_points, corners_points, ht_corners_points, predicted_total_goals, predicted_half_time_goals, predicted_ft_corners, predicted_ht_corners')
           .eq('match_day_id', md.id);
         if (!fallbackErr) {
           predictions = fallbackData as any[];
         } else {
           const { data: altData, error: altErr } = await supabase
             .from('predictions')
-            .select('id, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
+            .select('id, user_id, match_day_id, points, ht_goals_points, corners_points, ht_corners_points, predicted_total_goals, predicted_ht_goals, predicted_total_corners, predicted_ht_corners')
             .eq('match_day_id', md.id);
           if (altErr) {
             console.error('fetch predictions error', md.id, altErr);
@@ -151,10 +156,13 @@ export async function POST(request: NextRequest) {
       }
 
       for (const p of predictions || []) {
+        if (!p.user_id) continue;
+        userIds.add(p.user_id);
+
         const update: Record<string, number | null> = {};
-        const htPred = (p as any).predicted_half_time_goals ?? (p as any).predicted_ht_goals ?? null;
-        const ftCornersPred = (p as any).predicted_ft_corners ?? (p as any).predicted_total_corners ?? null;
-        const htCornersPred = (p as any).predicted_ht_corners ?? null;
+        const htPred = p.predicted_half_time_goals ?? p.predicted_ht_goals ?? null;
+        const ftCornersPred = p.predicted_ft_corners ?? p.predicted_total_corners ?? null;
+        const htCornersPred = p.predicted_ht_corners ?? null;
         if (actual != null) {
           update.points = p.predicted_total_goals != null ? calculatePoints(p.predicted_total_goals, actual) : null;
         }
@@ -168,12 +176,28 @@ export async function POST(request: NextRequest) {
           update.ht_corners_points = htCornersPred != null ? calculatePoints(htCornersPred, htCorners) : null;
         }
         if (Object.keys(update).length === 0) continue;
+
         const { error: updateErr } = await supabase
           .from('predictions')
           .update(update)
           .eq('id', p.id);
+
         if (!updateErr) {
           totalUpdated += 1;
+
+          const points = update.points ?? p.points ?? 0;
+          const htGoalsPoints = update.ht_goals_points ?? p.ht_goals_points ?? 0;
+          const cornersPoints = update.corners_points ?? p.corners_points ?? 0;
+          const htCornersPoints = update.ht_corners_points ?? p.ht_corners_points ?? 0;
+          const totalPoints = points + htGoalsPoints + cornersPoints + htCornersPoints;
+
+          if (totalPoints >= 40) {
+            fortyPointAchievements.push({
+              user_id: p.user_id,
+              match_day_id: md.id,
+              totalPoints,
+            });
+          }
           continue;
         }
 
@@ -196,6 +220,56 @@ export async function POST(request: NextRequest) {
         }
 
         console.error('Failed to update prediction', p.id, updateErr);
+      }
+    }
+
+    if (userIds.size > 0) {
+      const { data: profiles, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, email, display_name')
+        .in('id', Array.from(userIds));
+
+      if (!profileError && profiles?.length) {
+        const recipients = profiles.filter((profile) => profile.email).map((profile) => ({
+          email: profile.email as string,
+          displayName: profile.display_name || 'Player',
+        }));
+
+        const { subject, html, text } = buildMatchdayResultsEmail(matchDayTitles);
+        await Promise.allSettled(
+          recipients.map((recipient) =>
+            sendEmail({
+              to: recipient.email,
+              subject,
+              html,
+              text,
+            })
+          )
+        );
+      }
+    }
+
+    if (fortyPointAchievements.length > 0) {
+      const uniqueUserIds = Array.from(new Set(fortyPointAchievements.map((item) => item.user_id)));
+      const { data: achieverProfiles, error: achieverError } = await supabase
+        .from('profiles')
+        .select('id, display_name')
+        .in('id', uniqueUserIds);
+
+      const matchDayMap = new Map<string, string>(matchDays.map((md) => [md.id, md.name || md.match_date || md.id]));
+      const achieverDetails = fortyPointAchievements.map((item) => ({
+        userId: item.user_id,
+        displayName: achieverProfiles?.find((profile) => profile.id === item.user_id)?.display_name || null,
+        matchDayTitle: matchDayMap.get(item.match_day_id) || item.match_day_id,
+      }));
+
+      if (!achieverError && achieverDetails.length > 0) {
+        try {
+          const { subject, html, text } = buildAdmin40PointEmail(achieverDetails);
+          await sendAdminNotification(subject, text, html);
+        } catch (notifyErr) {
+          console.warn('⚠️ 40-point admin notification failed:', notifyErr);
+        }
       }
     }
 

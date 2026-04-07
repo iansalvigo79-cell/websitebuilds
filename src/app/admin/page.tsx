@@ -1233,8 +1233,6 @@ export default function AdminPage() {
         body: JSON.stringify(payload),
       });
 
-      console.log('response', res);
-
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.error || 'Failed to save blog');

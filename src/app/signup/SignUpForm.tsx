@@ -194,6 +194,7 @@ export default function SignUpForm() {
         }
 
         const welcomeName = formData.displayName.trim() || formData.firstName.trim() || 'Player';
+        console.log('-----------Come in---------------\n');
         fetch('/api/email/welcome', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

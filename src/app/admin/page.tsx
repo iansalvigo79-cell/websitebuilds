@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { Box, Container, Typography, Tabs, Tab, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Chip, MenuItem, Tooltip, IconButton, Switch, Autocomplete } from '@mui/material';
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import AddIcon from '@mui/icons-material/Add';
@@ -59,7 +59,7 @@ export default function AdminPage() {
   const [competitionActionId, setCompetitionActionId] = useState<string | null>(null);
   const [matchDaysList, setMatchDaysList] = useState<{ id: string; name?: string | null; match_date: string; cutoff_at: string; season_id?: string; season_name?: string }[]>([]);
   const [matchDaysLoading, setMatchDaysLoading] = useState(false);
-  const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; match_day_date?: string; home_team_name: string; away_team_name: string; competition_short_name?: string | null; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
+  const [gamesList, setGamesList] = useState<{ id: string; match_day_id: string; match_day_date?: string | null; match_day_name?: string | null; competition_id?: string | null; home_team_id?: string | null; away_team_id?: string | null; home_team_name: string; away_team_name: string; competition_short_name?: string | null; kickoff_at: string; home_goals: number | null; away_goals: number | null }[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
   // creation helpers for games tab
   const [availableMatchDays, setAvailableMatchDays] = useState<{ id: string; name?: string | null; match_date: string; season_name: string }[]>([]);
@@ -72,6 +72,7 @@ export default function AdminPage() {
   const [editingTeamName, setEditingTeamName] = useState('');
   const [savingTeamId, setSavingTeamId] = useState<string | null>(null);
   const [createGameForm, setCreateGameForm] = useState({ matchDayId: '', competitionId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const [creatingGame, setCreatingGame] = useState(false);
   const [prizesList, setPrizesList] = useState<Prize[]>([]);
   const [prizesLoading, setPrizesLoading] = useState(false);
@@ -303,12 +304,15 @@ export default function AdminPage() {
         .select(`
           id,
           match_day_id,
+          competition_id,
+          home_team,
+          away_team,
           kickoff_at,
           home_goals,
           away_goals,
           home_team_rel:teams!games_home_team_fkey(name),
           away_team_rel:teams!games_away_team_fkey(name),
-          match_days(match_date),
+          match_days(match_date, name),
           competitions(short_name)
         `)
         .order('kickoff_at', { ascending: false })
@@ -326,6 +330,9 @@ export default function AdminPage() {
           setGamesList((fallback.data || []).map((g: any) => ({
             id: g.id,
             match_day_id: g.match_day_id,
+            competition_id: null,
+            home_team_id: g.home_team || '',
+            away_team_id: g.away_team || '',
             home_team_name: g.home_team || 'TBD',
             away_team_name: g.away_team || 'TBD',
             competition_short_name: null,
@@ -338,9 +345,14 @@ export default function AdminPage() {
         setGamesList((data || []).map((g: any) => ({
           id: g.id,
           match_day_id: g.match_day_id,
+          competition_id: g.competition_id,
+          home_team_id: g.home_team ?? g.home_team_rel?.id ?? '',
+          away_team_id: g.away_team ?? g.away_team_rel?.id ?? '',
           home_team_name: g.home_team_rel?.name ?? g.home_team ?? 'TBD',
           away_team_name: g.away_team_rel?.name ?? g.away_team ?? 'TBD',
           competition_short_name: g.competitions?.short_name ?? null,
+          match_day_date: g.match_days?.match_date ?? null,
+          match_day_name: g.match_days?.name ?? null,
           kickoff_at: g.kickoff_at || '',
           home_goals: g.home_goals,
           away_goals: g.away_goals,
@@ -355,7 +367,6 @@ export default function AdminPage() {
     const { data, error } = await supabase
       .from('match_days')
       .select('id, name, match_date, season_id, seasons(name)')
-      .eq('is_open', true)
       .order('match_date', { ascending: true });
     if (error) {
       toast.error(error.message);
@@ -384,6 +395,91 @@ export default function AdminPage() {
     }
     setTeamsLoading(false);
   }, []);
+
+  const formatToLocalDateTime = (iso?: string) => {
+    if (!iso) return '';
+    const date = new Date(iso);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 16);
+  };
+
+  const handleStartEditGame = (game: {
+    id: string;
+    competition_id?: string | null;
+    match_day_id: string;
+    home_team_id?: string | null;
+    away_team_id?: string | null;
+    kickoff_at: string;
+  }) => {
+    setEditingGameId(game.id);
+    setCreateGameForm({
+      competitionId: game.competition_id || '',
+      matchDayId: game.match_day_id,
+      homeTeamId: game.home_team_id || '',
+      awayTeamId: game.away_team_id || '',
+      kickoffAt: formatToLocalDateTime(game.kickoff_at),
+    });
+    setTabValue(3);
+  };
+
+  const handleCancelEditGame = () => {
+    setEditingGameId(null);
+    setCreateGameForm({ matchDayId: '', competitionId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
+  };
+
+  const handleSaveGame = async () => {
+    if (!createGameForm.competitionId || !createGameForm.matchDayId || !createGameForm.homeTeamId || !createGameForm.awayTeamId || !createGameForm.kickoffAt) {
+      toast.error('Please fill out all fields');
+      return;
+    }
+    if (createGameForm.homeTeamId === createGameForm.awayTeamId) {
+      toast.error('Home and away team must be different');
+      return;
+    }
+
+    setCreatingGame(true);
+    try {
+      const kickoffUTC = new Date(createGameForm.kickoffAt).toISOString();
+      if (editingGameId) {
+        const { error } = await supabase
+          .from('games')
+          .update({
+            match_day_id: createGameForm.matchDayId,
+            competition_id: createGameForm.competitionId,
+            home_team: createGameForm.homeTeamId,
+            away_team: createGameForm.awayTeamId,
+            kickoff_at: kickoffUTC,
+          })
+          .eq('id', editingGameId);
+        if (error) {
+          toast.error('Error updating game: ' + error.message);
+          return;
+        }
+        toast.success('Game updated successfully');
+      } else {
+        const { error } = await supabase.from('games').insert({
+          match_day_id: createGameForm.matchDayId,
+          competition_id: createGameForm.competitionId,
+          home_team: createGameForm.homeTeamId,
+          away_team: createGameForm.awayTeamId,
+          kickoff_at: kickoffUTC,
+        });
+        if (error) {
+          toast.error('Error creating game: ' + error.message);
+          return;
+        }
+        toast.success('Game created successfully');
+      }
+      setCreateGameForm({ matchDayId: '', competitionId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
+      setEditingGameId(null);
+      fetchGamesList();
+    } catch (err) {
+      console.error('Unexpected error saving game', err);
+      toast.error('An error occurred');
+    } finally {
+      setCreatingGame(false);
+    }
+  };
 
   const getSession = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -452,8 +548,13 @@ export default function AdminPage() {
     if (tabValue === 1) fetchCompetitionsList();
   }, [tabValue, fetchCompetitionsList]);
   useEffect(() => {
-    if (tabValue === 2 || tabValue === 6) fetchMatchDaysList();
-  }, [tabValue, fetchMatchDaysList]);
+    if (tabValue === 2) {
+      fetchMatchDaysList();
+      fetchGamesList();
+    } else if (tabValue === 6) {
+      fetchMatchDaysList();
+    }
+  }, [tabValue, fetchMatchDaysList, fetchGamesList]);
   useEffect(() => {
     if (tabValue === 3) {
       fetchGamesList();
@@ -915,7 +1016,7 @@ export default function AdminPage() {
       toast.error('Competition name is required');
       return;
     }
-    const icon = competitionForm.icon.trim().slice(0, 4) || '?';
+    const icon = competitionForm.icon.trim().slice(0, 4) || '⚽';
     setCreatingCompetition(true);
     try {
       const { error } = await supabase
@@ -1125,7 +1226,7 @@ export default function AdminPage() {
 
       const res = await fetch(url, {
         method,
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
@@ -1168,7 +1269,7 @@ export default function AdminPage() {
         throw new Error('Session expired. Please login again.');
       }
 
-      const res = await fetch(`/api/blogs/${blogId}`, { 
+      const res = await fetch(`/api/blogs/${blogId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -1274,11 +1375,11 @@ export default function AdminPage() {
               Manage seasons, match days, games, scores, and prizes
             </Typography>
           </Box>
-          <Button 
-            onClick={handleLogout} 
+          <Button
+            onClick={handleLogout}
             variant="outlined"
-            sx={{ 
-              color: '#f87171', 
+            sx={{
+              color: '#f87171',
               borderColor: '#f87171',
               textTransform: 'none',
               fontWeight: 600,
@@ -1295,7 +1396,7 @@ export default function AdminPage() {
             value={tabValue}
             onChange={(_, newValue) => setTabValue(newValue)}
             sx={{
-              '& .MuiTab-root': { 
+              '& .MuiTab-root': {
                 color: '#64748b',
                 textTransform: 'none',
                 fontSize: '0.95rem',
@@ -1619,73 +1720,73 @@ export default function AdminPage() {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 4, flexWrap: 'wrap', gap: 2 }}>
               <Box>
                 <Typography variant="h5" sx={{ color: '#fff', fontWeight: 700, mb: 0.5 }}>
-                    Match Days
-                  </Typography>
-                  <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>Create and manage match day schedules with cutoff times.</Typography>
-                </Box>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                  <TextField
-                    select
-                    label="Season"
-                    size="small"
-                    value={matchDaySeasonId}
-                    onChange={(e) => setMatchDaySeasonId(e.target.value)}
-                    SelectProps={{ MenuProps: selectMenuProps }}
+                  Match Days
+                </Typography>
+                <Typography sx={{ color: '#64748b', fontSize: '0.9rem' }}>Create and manage match day schedules with cutoff times.</Typography>
+              </Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <TextField
+                  select
+                  label="Season"
+                  size="small"
+                  value={matchDaySeasonId}
+                  onChange={(e) => setMatchDaySeasonId(e.target.value)}
+                  SelectProps={{ MenuProps: selectMenuProps }}
+                  sx={{
+                    minWidth: 200,
+                    input: { color: '#fff' },
+                    label: { color: '#94a3b8' },
+                    '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' },
+                  }}
+                >
+                  {seasons.map((s) => (
+                    <MenuItem key={s.id} value={s.id} sx={selectMenuItemSx}>
+                      {s.name}{s.is_active ? '' : ' (Closed)'}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                {isMatchDaySeasonClosed ? (
+                  <Box
                     sx={{
-                      minWidth: 200,
-                      input: { color: '#fff' },
-                      label: { color: '#94a3b8' },
-                      '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' },
+                      px: 2,
+                      py: 1,
+                      borderRadius: 2,
+                      backgroundColor: 'rgba(107,114,128,0.2)',
+                      color: '#9ca3af',
+                      fontWeight: 700,
+                      textTransform: 'none',
+                      textAlign: 'center',
                     }}
                   >
-                    {seasons.map((s) => (
-                      <MenuItem key={s.id} value={s.id} sx={selectMenuItemSx}>
-                        {s.name}{s.is_active ? '' : ' (Closed)'}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  {isMatchDaySeasonClosed ? (
-                    <Box
-                      sx={{
-                        px: 2,
-                        py: 1,
-                        borderRadius: 2,
-                        backgroundColor: 'rgba(107,114,128,0.2)',
-                        color: '#9ca3af',
-                        fontWeight: 700,
-                        textTransform: 'none',
-                        textAlign: 'center',
-                      }}
-                    >
-                      Season Closed
-                    </Box>
-                  ) : (
-                    <Button
-                      variant="contained"
-                      startIcon={<AddIcon />}
-                      onClick={() => {
-                        if (!matchDaySeasonId) {
-                          toast.error('Please select a season');
-                          return;
-                        }
-                        setMatchDayForm({ name: '', seasonId: matchDaySeasonId, matchDate: '', cutoffAt: '' });
-                        setMatchDayDialogOpen(true);
-                      }}
-                      sx={{
-                        backgroundColor: '#16a34a',
-                        color: '#fff',
-                        fontWeight: 700,
-                        textTransform: 'none',
-                        px: 2.5,
-                        whiteSpace: 'nowrap',
-                        '&:hover': { backgroundColor: '#15803d' },
-                      }}
-                    >
-                      New Match Day
-                    </Button>
-                  )}
-                </Stack>
-              </Box>
+                    Season Closed
+                  </Box>
+                ) : (
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      if (!matchDaySeasonId) {
+                        toast.error('Please select a season');
+                        return;
+                      }
+                      setMatchDayForm({ name: '', seasonId: matchDaySeasonId, matchDate: '', cutoffAt: '' });
+                      setMatchDayDialogOpen(true);
+                    }}
+                    sx={{
+                      backgroundColor: '#16a34a',
+                      color: '#fff',
+                      fontWeight: 700,
+                      textTransform: 'none',
+                      px: 2.5,
+                      whiteSpace: 'nowrap',
+                      '&:hover': { backgroundColor: '#15803d' },
+                    }}
+                  >
+                    New Match Day
+                  </Button>
+                )}
+              </Stack>
+            </Box>
             {matchDaysLoading ? (
               <ModernLoader
                 label="Loading Matchdays"
@@ -1699,19 +1800,20 @@ export default function AdminPage() {
             ) : (
               <TableContainer component={Box} sx={{ backgroundColor: 'rgba(100, 116, 139, 0.05)', borderRadius: 2, border: '1px solid rgba(100, 116, 139, 0.2)' }}>
                 <Table sx={{ '& td, & th': { borderColor: 'rgba(100, 116, 139, 0.2)', color: '#e2e8f0', padding: '16px' } }}>
-                    <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
-                      <TableRow>
-                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Match Date</TableCell>
-                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Name</TableCell>
-                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Season</TableCell>
-                        <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Cutoff Time</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Status</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {visibleMatchDays.map((md) => (
-                        <TableRow key={md.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
+                  <TableHead sx={{ backgroundColor: 'rgba(100, 116, 139, 0.1)' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Match Date</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Name</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Season</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Cutoff Time</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Status</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {visibleMatchDays.map((md) => (
+                      <Fragment key={md.id}>
+                        <TableRow sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                           <TableCell>{md.match_date}</TableCell>
                           <TableCell>
                             {editingMatchDayId === md.id ? (
@@ -1740,72 +1842,124 @@ export default function AdminPage() {
                           <TableCell align="right">
                             {md.cutoff_at ? (
                               <Chip
-                              size="small"
-                              label={new Date(md.cutoff_at).getTime() > Date.now() ? 'Open' : 'Closed'}
-                              sx={{
-                                backgroundColor: new Date(md.cutoff_at).getTime() > Date.now() ? 'rgba(22, 163, 74, 0.25)' : 'rgba(148, 163, 184, 0.25)',
-                                color: new Date(md.cutoff_at).getTime() > Date.now() ? '#16a34a' : '#94a3b8',
-                                fontWeight: 600
-                              }}
-                            />
-                          ) : (
-                            <Chip size="small" label="No cutoff" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#64748b' }} />
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            {editingMatchDayId === md.id ? (
-                              <Button
                                 size="small"
-                                variant="outlined"
-                                onClick={() => handleSaveMatchDayName(md.id)}
-                                disabled={savingMatchDayNameId === md.id}
+                                label={new Date(md.cutoff_at).getTime() > Date.now() ? 'Open' : 'Closed'}
                                 sx={{
-                                  borderColor: '#16a34a',
-                                  color: '#16a34a',
-                                  textTransform: 'none',
-                                  fontWeight: 700,
-                                  px: 2,
-                                  whiteSpace: 'nowrap',
+                                  backgroundColor: new Date(md.cutoff_at).getTime() > Date.now() ? 'rgba(22, 163, 74, 0.25)' : 'rgba(148, 163, 184, 0.25)',
+                                  color: new Date(md.cutoff_at).getTime() > Date.now() ? '#16a34a' : '#94a3b8',
+                                  fontWeight: 600
                                 }}
-                              >
-                                {savingMatchDayNameId === md.id ? 'Saving...' : 'Save'}
-                              </Button>
+                              />
                             ) : (
+                              <Chip size="small" label="No cutoff" sx={{ backgroundColor: 'rgba(100, 116, 139, 0.25)', color: '#64748b' }} />
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Stack direction="row" spacing={1} justifyContent="flex-end">
+                              {editingMatchDayId === md.id ? (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => handleSaveMatchDayName(md.id)}
+                                  disabled={savingMatchDayNameId === md.id}
+                                  sx={{
+                                    borderColor: '#16a34a',
+                                    color: '#16a34a',
+                                    textTransform: 'none',
+                                    fontWeight: 700,
+                                    px: 2,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {savingMatchDayNameId === md.id ? 'Saving...' : 'Save'}
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => handleEditMatchDayName(md)}
+                                  sx={{
+                                    borderColor: 'rgba(148, 163, 184, 0.5)',
+                                    color: '#9ca3af',
+                                    textTransform: 'none',
+                                    fontWeight: 700,
+                                    px: 2,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              )}
                               <Button
                                 size="small"
                                 variant="outlined"
-                                onClick={() => handleEditMatchDayName(md)}
+                                onClick={() => handleOpenDeleteMatchDayDialog(md)}
                                 sx={{
-                                  borderColor: 'rgba(148, 163, 184, 0.5)',
-                                  color: '#9ca3af',
+                                  borderColor: 'rgba(239, 68, 68, 0.6)',
+                                  color: '#ef4444',
                                   textTransform: 'none',
                                   fontWeight: 700,
                                   px: 2,
                                   whiteSpace: 'nowrap',
                                 }}
                               >
-                                Edit
+                                Remove
                               </Button>
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow sx={{ backgroundColor: 'rgba(15, 23, 42, 0.08)' }}>
+                          <TableCell colSpan={6} sx={{ py: 1, px: 3 }}>
+                            <Typography sx={{ color: '#94a3b8', fontSize: '0.85rem', mb: 1, fontWeight: 600 }}>
+                              Games in this matchday
+                            </Typography>
+                            {gamesList.filter((g) => g.match_day_id === md.id).length === 0 ? (
+                              <Typography sx={{ color: '#64748b' }}>No games added for this matchday yet.</Typography>
+                            ) : (
+                              <Stack spacing={1}>
+                                {gamesList.filter((g) => g.match_day_id === md.id).map((game) => (
+                                  <Box
+                                    key={game.id}
+                                    sx={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      gap: 2,
+                                      p: 1.25,
+                                      borderRadius: 2,
+                                      backgroundColor: 'rgba(100, 116, 139, 0.08)',
+                                    }}
+                                  >
+                                    <Box>
+                                      <Typography sx={{ color: '#e2e8f0', fontWeight: 600 }}>
+                                        {game.home_team_name} vs {game.away_team_name}
+                                      </Typography>
+                                      <Typography sx={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                                        {game.match_day_name ? `${game.match_day_name} · ` : ''}{game.competition_short_name ? `${game.competition_short_name} · ` : ''}
+                                        {game.kickoff_at ? new Date(game.kickoff_at).toLocaleString('en-GB') : 'No kickoff time'}
+                                      </Typography>
+                                    </Box>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={() => handleStartEditGame(game)}
+                                      sx={{
+                                        color: '#fff',
+                                        borderColor: 'rgba(148, 163, 184, 0.5)',
+                                        textTransform: 'none',
+                                        fontWeight: 700,
+                                        px: 2,
+                                      }}
+                                    >
+                                      Edit
+                                    </Button>
+                                  </Box>
+                                ))}
+                              </Stack>
                             )}
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => handleOpenDeleteMatchDayDialog(md)}
-                              sx={{
-                                borderColor: 'rgba(239, 68, 68, 0.6)',
-                                color: '#ef4444',
-                                textTransform: 'none',
-                                fontWeight: 700,
-                                px: 2,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
+                          </TableCell>
+                        </TableRow>
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>
@@ -1824,11 +1978,11 @@ export default function AdminPage() {
             </Box>
 
             {/* create game form */}
-            <Box sx={{ 
-              mb: 6, 
-              p: 4, 
+            <Box sx={{
+              mb: 6,
+              p: 4,
               background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%)',
-              borderRadius: 3, 
+              borderRadius: 3,
               border: '1px solid rgba(139, 92, 246, 0.3)',
               boxShadow: '0 8px 24px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
               position: 'relative',
@@ -1878,10 +2032,10 @@ export default function AdminPage() {
                   onChange={(e) => setCreateGameForm({ ...createGameForm, matchDayId: e.target.value })}
                   fullWidth
                   sx={{
-                    '& .MuiInputBase-root': { 
-                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
-                      color: '#e2e8f0', 
-                      borderRadius: 2, 
+                    '& .MuiInputBase-root': {
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                      color: '#e2e8f0',
+                      borderRadius: 2,
                       border: '1.5px solid rgba(139, 92, 246, 0.4)',
                       transition: 'all 0.2s ease',
                       '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
@@ -1918,10 +2072,10 @@ export default function AdminPage() {
                       label="Home Team"
                       fullWidth
                       sx={{
-                        '& .MuiInputBase-root': { 
-                          backgroundColor: 'rgba(15, 23, 42, 0.6)', 
-                          color: '#e2e8f0', 
-                          borderRadius: 2, 
+                        '& .MuiInputBase-root': {
+                          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                          color: '#e2e8f0',
+                          borderRadius: 2,
                           border: '1.5px solid rgba(139, 92, 246, 0.4)',
                           transition: 'all 0.2s ease',
                           '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
@@ -1951,10 +2105,10 @@ export default function AdminPage() {
                       label="Away Team"
                       fullWidth
                       sx={{
-                        '& .MuiInputBase-root': { 
-                          backgroundColor: 'rgba(15, 23, 42, 0.6)', 
-                          color: '#e2e8f0', 
-                          borderRadius: 2, 
+                        '& .MuiInputBase-root': {
+                          backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                          color: '#e2e8f0',
+                          borderRadius: 2,
                           border: '1.5px solid rgba(139, 92, 246, 0.4)',
                           transition: 'all 0.2s ease',
                           '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
@@ -1975,10 +2129,10 @@ export default function AdminPage() {
                   fullWidth
                   InputLabelProps={{ shrink: true }}
                   sx={{
-                    '& .MuiInputBase-root': { 
-                      backgroundColor: 'rgba(15, 23, 42, 0.6)', 
-                      color: '#e2e8f0', 
-                      borderRadius: 2, 
+                    '& .MuiInputBase-root': {
+                      backgroundColor: 'rgba(15, 23, 42, 0.6)',
+                      color: '#e2e8f0',
+                      borderRadius: 2,
                       border: '1.5px solid rgba(139, 92, 246, 0.4)',
                       transition: 'all 0.2s ease',
                       '&:hover': { borderColor: 'rgba(139, 92, 246, 0.6)', backgroundColor: 'rgba(15, 23, 42, 0.8)' },
@@ -1989,42 +2143,12 @@ export default function AdminPage() {
                     '& .MuiInputLabel-shrink': { color: '#8b5cf6' }
                   }}
                 />
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center">
                 <Button
                   variant="contained"
                   disabled={creatingGame}
-                  onClick={async () => {
-                    if (!createGameForm.competitionId || !createGameForm.matchDayId || !createGameForm.homeTeamId || !createGameForm.awayTeamId || !createGameForm.kickoffAt) {
-                      toast.error('Please fill out all fields');
-                      return;
-                    }
-                    if (createGameForm.homeTeamId === createGameForm.awayTeamId) {
-                      toast.error('Home and away team must be different');
-                      return;
-                    }
-                    setCreatingGame(true);
-                    try {
-                      const kickoffUTC = new Date(createGameForm.kickoffAt).toISOString();
-                      const { error } = await supabase.from('games').insert({
-                        match_day_id: createGameForm.matchDayId,
-                        competition_id: createGameForm.competitionId,
-                        home_team: createGameForm.homeTeamId,
-                        away_team: createGameForm.awayTeamId,
-                        kickoff_at: kickoffUTC,
-                      });
-                      if (error) {
-                        toast.error('Error creating game: ' + error.message);
-                      } else {
-                        toast.success('Game created successfully');
-                        setCreateGameForm({ matchDayId: '', competitionId: '', homeTeamId: '', awayTeamId: '', kickoffAt: '' });
-                        fetchGamesList();
-                      }
-                    } catch (err) {
-                      console.error('Unexpected error creating game', err);
-                      toast.error('An error occurred');
-                    } finally {
-                      setCreatingGame(false);
-                    }
-                  }}
+                  onClick={handleSaveGame}
                   sx={{
                     background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
                     color: '#fff',
@@ -2035,15 +2159,29 @@ export default function AdminPage() {
                     borderRadius: 2,
                     boxShadow: '0 6px 20px rgba(139, 92, 246, 0.4)',
                     transition: 'all 0.3s ease',
-                    '&:hover': { 
+                    '&:hover': {
                       boxShadow: '0 8px 28px rgba(139, 92, 246, 0.6)',
                       transform: 'translateY(-2px)'
                     },
                     '&:disabled': { opacity: 0.6, transform: 'none' }
                   }}
                 >
-                  {creatingGame ? 'Creating...' : 'Create Game'}
+                  {creatingGame ? (editingGameId ? 'Saving...' : 'Creating...') : editingGameId ? 'Update Game' : 'Create Game'}
                 </Button>
+                {editingGameId && (
+                  <Button
+                    variant="outlined"
+                    onClick={handleCancelEditGame}
+                    sx={{
+                      color: '#fff',
+                      borderColor: 'rgba(148, 163, 184, 0.5)',
+                      textTransform: 'none',
+                      fontWeight: 700,
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
               </Stack>
             </Box>
             {gamesLoading ? (
@@ -2064,8 +2202,9 @@ export default function AdminPage() {
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Home Team</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Away Team</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Competition</TableCell>
+                      <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Match Day</TableCell>
                       <TableCell sx={{ fontWeight: 700, color: '#cbd5e1' }}>Kickoff</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Score</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: '#cbd5e1' }}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -2094,13 +2233,23 @@ export default function AdminPage() {
                             <Typography sx={{ color: '#64748b' }}>-</Typography>
                           )}
                         </TableCell>
+                        <TableCell>{g.match_day_name || g.match_day_date || '-'}</TableCell>
                         <TableCell>{g.kickoff_at ? new Date(g.kickoff_at).toLocaleString('en-GB') : '-'}</TableCell>
                         <TableCell align="right">
-                          {g.home_goals != null && g.away_goals != null ? (
-                            <Box sx={{ fontWeight: 700, color: '#16a34a' }}>{g.home_goals} - {g.away_goals}</Box>
-                          ) : (
-                            <Typography sx={{ color: '#64748b' }}>-</Typography>
-                          )}
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleStartEditGame(g)}
+                            sx={{
+                              color: '#fff',
+                              borderColor: 'rgba(148, 163, 184, 0.5)',
+                              textTransform: 'none',
+                              fontWeight: 700,
+                              px: 2,
+                            }}
+                          >
+                            Edit
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2488,11 +2637,11 @@ export default function AdminPage() {
             </Box>
 
             {/* Create Prize Form */}
-            <Box sx={{ 
-              p: 4, 
+            <Box sx={{
+              p: 4,
               background: 'linear-gradient(135deg, rgba(13, 110, 107, 0.15) 0%, rgba(15, 118, 110, 0.15) 100%)',
               border: '1.5px solid rgba(6, 182, 212, 0.3)',
-              borderRadius: 3, 
+              borderRadius: 3,
               mb: 4,
               boxShadow: '0 8px 24px rgba(6, 182, 212, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
               position: 'relative',
@@ -2799,9 +2948,9 @@ export default function AdminPage() {
                         setCreatingPrize(false);
                       }
                     }}
-                    sx={{ 
+                    sx={{
                       background: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)',
-                      color: '#fff', 
+                      color: '#fff',
                       fontWeight: 700,
                       textTransform: 'none',
                       fontSize: '1rem',
@@ -2809,7 +2958,7 @@ export default function AdminPage() {
                       borderRadius: 2,
                       boxShadow: '0 6px 20px rgba(6, 182, 212, 0.4)',
                       transition: 'all 0.3s ease',
-                      '&:hover': { 
+                      '&:hover': {
                         boxShadow: '0 8px 28px rgba(6, 182, 212, 0.6)',
                         transform: 'translateY(-2px)'
                       },
@@ -2936,8 +3085,8 @@ export default function AdminPage() {
                       {prizesList.map((p) => (
                         <TableRow key={p.id} sx={{ '&:hover': { backgroundColor: 'rgba(100, 116, 139, 0.15)' } }}>
                           <TableCell>
-                            <Chip 
-                              label={p.type.charAt(0).toUpperCase() + p.type.slice(1)} 
+                            <Chip
+                              label={p.type.charAt(0).toUpperCase() + p.type.slice(1)}
                               size="small"
                               sx={{ backgroundColor: 'rgba(100, 116, 139, 0.3)', color: '#cbd5e1' }}
                             />
@@ -3254,8 +3403,8 @@ export default function AdminPage() {
                 onChange={(e) => setSeasonForm({ ...seasonForm, name: e.target.value })}
                 fullWidth
                 variant="outlined"
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3267,8 +3416,8 @@ export default function AdminPage() {
                 onChange={(e) => setSeasonForm({ ...seasonForm, startDate: e.target.value })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3280,8 +3429,8 @@ export default function AdminPage() {
                 onChange={(e) => setSeasonForm({ ...seasonForm, endDate: e.target.value })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3370,8 +3519,8 @@ export default function AdminPage() {
                 onChange={(e) => setMatchDayForm({ ...matchDayForm, seasonId: e.target.value })}
                 SelectProps={{ MenuProps: selectMenuProps }}
                 fullWidth
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3389,8 +3538,8 @@ export default function AdminPage() {
                 onChange={(e) => setMatchDayForm({ ...matchDayForm, matchDate: e.target.value })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3402,8 +3551,8 @@ export default function AdminPage() {
                 onChange={(e) => setMatchDayForm({ ...matchDayForm, cutoffAt: e.target.value })}
                 fullWidth
                 InputLabelProps={{ shrink: true }}
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3498,8 +3647,8 @@ export default function AdminPage() {
                 onChange={(e) => setBlogForm({ ...blogForm, title: e.target.value })}
                 fullWidth
                 variant="outlined"
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3512,8 +3661,8 @@ export default function AdminPage() {
                 multiline
                 rows={2}
                 variant="outlined"
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   '& .MuiInputBase-input': { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
@@ -3527,8 +3676,8 @@ export default function AdminPage() {
                 multiline
                 rows={8}
                 variant="outlined"
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   '& .MuiInputBase-input': { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
@@ -3540,8 +3689,8 @@ export default function AdminPage() {
                 value={blogForm.category}
                 onChange={(e) => setBlogForm({ ...blogForm, category: e.target.value as BlogCategory })}
                 fullWidth
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3556,8 +3705,8 @@ export default function AdminPage() {
                 onChange={(e) => setBlogForm({ ...blogForm, author: e.target.value })}
                 fullWidth
                 variant="outlined"
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3568,8 +3717,8 @@ export default function AdminPage() {
                 onChange={(e) => setBlogForm({ ...blogForm, image_url: e.target.value })}
                 fullWidth
                 variant="outlined"
-                sx={{ 
-                  input: { color: '#fff' }, 
+                sx={{
+                  input: { color: '#fff' },
                   label: { color: '#94a3b8' },
                   '& .MuiOutlinedInput-root': { borderColor: 'rgba(148, 163, 184, 0.3)' }
                 }}
@@ -3590,8 +3739,8 @@ export default function AdminPage() {
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 2, pt: 1 }}>
-                <Button 
-                  onClick={() => setBlogDialogOpen(false)} 
+                <Button
+                  onClick={() => setBlogDialogOpen(false)}
                   sx={{ color: '#94a3b8' }}
                 >
                   Cancel

@@ -11,7 +11,7 @@ interface SendEmailOptions {
 
 export async function sendEmail({ to, subject, html, text }: SendEmailOptions) {
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESEND_FROM_EMAIL;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || `Goalactico <noreply@goalactico.net>`;
 
   if (!apiKey || !fromEmail) {
     throw new Error('Email service not configured: RESEND_API_KEY or RESEND_FROM_EMAIL is missing');

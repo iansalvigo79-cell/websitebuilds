@@ -26,6 +26,9 @@ export async function POST(request: NextRequest) {
 
   const userId = payload.userId?.trim();
   const email = payload.email?.trim();
+
+  console.log('Received welcome email request for userId:', userId, 'email:', email);
+
   const displayName = payload.displayName?.trim() || 'there';
   if (!userId || !email) {
     return NextResponse.json({ error: 'Missing required fields: userId, email' }, { status: 400 });

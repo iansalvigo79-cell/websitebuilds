@@ -60,6 +60,7 @@ export default function SettingsPage() {
     accountType: 'free',
     subscriptionStatus: 'inactive',
     stripeSubscriptionId: null as string | null,
+    stripeCustomerId: null as string | null,
   });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
@@ -86,7 +87,7 @@ export default function SettingsPage() {
         const [profileRes, teamsRes] = await Promise.all([
           supabase
             .from('profiles')
-            .select('display_name, whatsapp, team_id, account_type, subscription_status, stripe_subscription_id')
+            .select('display_name, whatsapp, team_id, account_type, subscription_status, stripe_subscription_id, stripe_customer_id')
             .eq('id', user.id)
             .single(),
           supabase
@@ -112,6 +113,7 @@ export default function SettingsPage() {
             accountType: profileRes.data.account_type ?? 'free',
             subscriptionStatus: profileRes.data.subscription_status ?? 'inactive',
             stripeSubscriptionId: profileRes.data.stripe_subscription_id ?? null,
+            stripeCustomerId: profileRes.data.stripe_customer_id ?? null,
           });
         }
 
@@ -138,6 +140,10 @@ export default function SettingsPage() {
   const isPaid = useMemo(
     () => subscription.accountType === 'paid' || Boolean(subscription.stripeSubscriptionId),
     [subscription.accountType, subscription.stripeSubscriptionId]
+  );
+  const canManageBilling = useMemo(
+    () => isPaid && Boolean(subscription.stripeCustomerId),
+    [isPaid, subscription.stripeCustomerId]
   );
 
   const inputStyles = {
@@ -608,7 +614,7 @@ export default function SettingsPage() {
             <Typography sx={{ color: '#9ca3af', mb: 2 }}>
               Status: {subscription.subscriptionStatus || 'inactive'}
             </Typography>
-            {isPaid ? (
+            {canManageBilling ? (
               <Button
                 variant="outlined"
                 onClick={handleManageBilling}
@@ -624,6 +630,10 @@ export default function SettingsPage() {
               >
                 {isPortalLoading ? 'Opening...' : 'Manage or Cancel Subscription'}
               </Button>
+            ) : isPaid ? (
+              <Typography sx={{ color: '#fef3c7', fontSize: '0.9rem' }}>
+                Billing management is unavailable for this account because the Stripe customer record is missing or invalid.
+              </Typography>
             ) : (
               <Button
                 variant="contained"

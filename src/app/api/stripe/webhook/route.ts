@@ -46,6 +46,53 @@ export async function POST(request: NextRequest) {
   // Service role key bypasses RLS — required to update any user's profile
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  async function findProfileIdByStripe(customerId?: string | null, subscriptionId?: string | null, email?: string | null) {
+    if (subscriptionId) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('stripe_subscription_id', subscriptionId)
+        .limit(1);
+      if (!error && data?.length) return data[0].id;
+    }
+    if (customerId) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('stripe_customer_id', customerId)
+        .limit(1);
+      if (!error && data?.length) return data[0].id;
+    }
+    if (email) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .limit(1);
+      if (!error && data?.length) return data[0].id;
+    }
+    return null;
+  }
+
+  async function updateProfilePaid(userId: string, customerId: string, subscriptionId: string) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        account_type: 'paid',
+        stripe_customer_id: customerId,
+        stripe_subscription_id: subscriptionId,
+        subscription_status: 'active',
+      })
+      .eq('id', userId)
+      .select('id, email, display_name');
+
+    if (error) {
+      console.error('❌ Supabase update failed:', error.message);
+      return null;
+    }
+    return data?.[0] ?? null;
+  }
+
   console.log('Coming in Stripe Webhook.........');
 
   // ── Check if this is a test request ──────────────────────────────────────
@@ -87,15 +134,15 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
 
       // ── PAYMENT SUCCESSFUL ───────────────────────────────────────────────
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
         let session = event.data.object as Stripe.Checkout.Session;
-        console.log('session:', session)
+        console.log('session:', session);
 
-        // Extract userId — checked in order of reliability
         let userId: string | null =
-          session.client_reference_id ||            // ← most reliable
-          session.metadata?.user_id ||              // ← fallback 1
-          session.metadata?.userId ||               // ← fallback 2
+          session.client_reference_id ||
+          session.metadata?.user_id ||
+          session.metadata?.userId ||
           null;
 
         let customerId: string | null =
@@ -108,7 +155,6 @@ export async function POST(request: NextRequest) {
             ? session.subscription
             : (session.subscription as Stripe.Subscription)?.id ?? null;
 
-        // If any value missing, retrieve full session from Stripe API
         if (!userId || !customerId || !subscriptionId) {
           console.log('⚠️ Missing fields, retrieving full session from Stripe...');
           const retrieved = await stripe.checkout.sessions.retrieve(session.id, {
@@ -133,13 +179,25 @@ export async function POST(request: NextRequest) {
               : (session.subscription as Stripe.Subscription)?.id ?? null;
         }
 
+        const customerEmail =
+          typeof session.customer === 'object'
+            ? (session.customer as Stripe.Customer).email ?? null
+            : null;
+
         console.log('💳 userId:', userId);
         console.log('💳 customerId:', customerId);
         console.log('💳 subscriptionId:', subscriptionId);
+        console.log('💳 customerEmail:', customerEmail);
 
         if (!userId) {
-          console.error('❌ Cannot update profile — userId not found in session.');
-          console.error('   Fix: ensure checkout session sets client_reference_id = user.id');
+          userId = await findProfileIdByStripe(customerId, subscriptionId, customerEmail);
+          if (userId) {
+            console.log('✅ Found profile by Stripe identifiers:', userId);
+          }
+        }
+
+        if (!userId) {
+          console.error('❌ Cannot update profile — userId not found in session or profile lookup.');
           break;
         }
 
@@ -148,31 +206,92 @@ export async function POST(request: NextRequest) {
           break;
         }
 
-        // ── Update all 3 columns in profiles table ──────────────────────
-        const { data, error: updateError } = await supabase
-          .from('profiles')
-          .update({
-            account_type: 'paid',          // ← unlocks all 4 prediction games
-            stripe_customer_id: customerId,       // ← e.g. cus_xxx
-            stripe_subscription_id: subscriptionId,  // ← e.g. sub_xxx
-            subscription_status: 'active',         // ← bonus: tracks status
-          })
-          .eq('id', userId)
-          .select('id, email, display_name');
-
-        if (updateError) {
-          console.error('❌ Supabase update failed:', updateError.message);
+        const profileData = await updateProfilePaid(userId, customerId, subscriptionId);
+        if (!profileData) {
           return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
         }
 
-        console.log('✅ Profile updated successfully:', data);
+        console.log('✅ Profile updated successfully:', profileData);
         try {
-          const displayName = data?.[0]?.display_name || null;
-          const email = data?.[0]?.email || null;
+          const displayName = profileData.display_name || null;
+          const email = profileData.email || null;
           const { subject, html, text } = buildAdminPaidSignupEmail(displayName, userId, email);
           await sendAdminNotification(subject, text, html);
         } catch (notifyErr) {
           console.warn('⚠️ Paid signup notification failed:', notifyErr);
+        }
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object as Stripe.Invoice;
+        const subscriptionId =
+          typeof invoice.subscription === 'string'
+            ? invoice.subscription
+            : (invoice.subscription as Stripe.Subscription)?.id ?? null;
+        const customerId =
+          typeof invoice.customer === 'string'
+            ? invoice.customer
+            : (invoice.customer as Stripe.Customer)?.id ?? null;
+        const customerEmail =
+          typeof invoice.customer === 'object'
+            ? (invoice.customer as Stripe.Customer).email ?? null
+            : null;
+
+        if (!subscriptionId && !customerId && !customerEmail) {
+          console.error('❌ Invoice event missing subscription and customer identifiers.');
+          break;
+        }
+
+        const profileId = await findProfileIdByStripe(customerId, subscriptionId, customerEmail);
+        if (!profileId) {
+          console.warn('⚠️ No profile found for invoice payment succeeded event.');
+          break;
+        }
+
+        const { error: payUpdateError } = await supabase
+          .from('profiles')
+          .update({
+            account_type: 'paid',
+            subscription_status: 'active',
+            stripe_subscription_id: subscriptionId ?? undefined,
+            stripe_customer_id: customerId ?? undefined,
+          })
+          .eq('id', profileId);
+
+        if (payUpdateError) {
+          console.error('❌ Invoice profile update failed:', payUpdateError.message);
+        } else {
+          console.log('✅ Profile updated after invoice payment:', profileId);
+        }
+        break;
+      }
+
+      case 'customer.subscription.created': {
+        const sub = event.data.object as Stripe.Subscription;
+        const subscriptionId = sub.id;
+        const customerId = typeof sub.customer === 'string' ? sub.customer : (sub.customer as Stripe.Customer)?.id ?? null;
+
+        const profileId = await findProfileIdByStripe(customerId, subscriptionId, null);
+        if (!profileId) {
+          console.warn('⚠️ No profile found for subscription.created event:', subscriptionId);
+          break;
+        }
+
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            stripe_subscription_id: subscriptionId,
+            stripe_customer_id: customerId ?? undefined,
+            subscription_status: sub.status === 'active' ? 'active' : sub.status,
+            account_type: sub.status === 'active' ? 'paid' : 'free',
+          })
+          .eq('id', profileId);
+
+        if (updateError) {
+          console.error('❌ Subscription.created profile update failed:', updateError.message);
+        } else {
+          console.log('✅ Profile updated for subscription.created:', profileId);
         }
         break;
       }

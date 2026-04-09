@@ -297,16 +297,28 @@ export default function MyPredictionsTab() {
       console.warn('Badge fetch error (MyPredictions):', err);
     }
 
-    if (badges.length === 0) {
-      if (list.length >= 1) badges.push('first_prediction');
-      if (exact >= 1) badges.push('exact_prediction');
-      if (max >= 3) badges.push('streak_3');
-      if (max >= 5) badges.push('streak_5');
-      if (max >= 10) badges.push('streak_10');
-      if (rank === 1) badges.push('top_weekly', 'top_monthly', 'top_season');
+    const badgeSet = new Set<BadgeType>(badges);
+    if (list.length >= 1) badgeSet.add('first_prediction');
+    if (exact >= 1) badgeSet.add('exact_prediction');
+    if (max >= 3) badgeSet.add('streak_3');
+    if (max >= 5) badgeSet.add('streak_5');
+    if (max >= 10) badgeSet.add('streak_10');
+    if (rank === 1) {
+      badgeSet.add('top_weekly');
+      badgeSet.add('top_monthly');
+      badgeSet.add('top_season');
+    }
+    if (total >= 1) {
+      badgeSet.add('total-points-first');
+      if (total >= 25) badgeSet.add('total-points-25');
+      if (total >= 50) badgeSet.add('total-points-50');
+      if (total >= 100) badgeSet.add('total-points-100');
+      if (total >= 250) badgeSet.add('total-points-250');
+      if (total >= 500) badgeSet.add('total-points-500');
+      if (total >= 1000) badgeSet.add('total-points-1000');
     }
 
-    setEarnedBadges(badges);
+    setEarnedBadges(Array.from(badgeSet));
       setLoading(false);
     } catch (err) {
       console.error('MyPredictionsTab fetch error:', err);
@@ -618,7 +630,7 @@ export default function MyPredictionsTab() {
           </ToggleButtonGroup>
         </Stack>
         <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Table size="small"><TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}><TableRow><TableCell>Matchday</TableCell><TableCell>Matchday Name</TableCell><TableCell>Prediction</TableCell><TableCell>Result</TableCell><TableCell>Points</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{paged.map((r) => { const ftPoints = r.ft_points ?? 0; const status = r.actual_total_goals == null ? 'PENDING' : ftPoints === 10 ? 'EXACT' : ftPoints > 0 ? 'CLOSE' : 'MISS'; const sx = status === 'EXACT' ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' } : status === 'CLOSE' ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' } : status === 'MISS' ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' } : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' }; return <TableRow key={r.id}><TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell><TableCell sx={{ color: '#d1d5db' }}>{r.matchdayName}</TableCell><TableCell sx={{ color: '#fff' }}>{r.predicted_total_goals}</TableCell><TableCell sx={{ color: '#9ca3af' }}>{r.actual_total_goals ?? '-'}</TableCell><TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{r.points ?? '-'}</TableCell><TableCell><Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} /></TableCell></TableRow>; })}</TableBody></Table>
+          <Table size="small"><TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}><TableRow><TableCell>Matchday</TableCell><TableCell>Matchday Name</TableCell><TableCell>Prediction</TableCell><TableCell>Result</TableCell><TableCell>Points</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{paged.map((r) => { const totalPoints = r.points ?? 0; const ftPoints = r.ft_points ?? 0; const status = r.actual_total_goals == null ? 'PENDING' : totalPoints === 0 ? 'MISS' : ftPoints === 10 ? 'EXACT' : 'CLOSE'; const sx = status === 'EXACT' ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' } : status === 'CLOSE' ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' } : status === 'MISS' ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' } : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' }; return <TableRow key={r.id}><TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell><TableCell sx={{ color: '#d1d5db' }}>{r.matchdayName}</TableCell><TableCell sx={{ color: '#fff' }}>{r.predicted_total_goals}</TableCell><TableCell sx={{ color: '#9ca3af' }}>{r.actual_total_goals ?? '-'}</TableCell><TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{r.points ?? '-'}</TableCell><TableCell><Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} /></TableCell></TableRow>; })}</TableBody></Table>
         </TableContainer>
         <Stack direction="row" justifyContent="flex-end" spacing={0.6} sx={{ mt: 1.2 }}>{Array.from({ length: pages }).map((_, i) => <Button key={i} size="small" onClick={() => setPage(i)} sx={{ minWidth: 28, color: i === page ? '#fff' : '#9ca3af', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: i === page ? '#16a34a' : 'transparent' }}>{i + 1}</Button>)}</Stack>
       </CardContent></Card>

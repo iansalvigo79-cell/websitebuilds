@@ -26,14 +26,16 @@ export async function POST(request: NextRequest) {
     console.log('🧪 Test webhook: Updating user', userId);
 
     // Simulate the webhook logic
+    const updatePayload: Record<string, any> = {
+      account_type: 'paid',
+      subscription_status: 'active',
+    };
+    if (customerId) updatePayload.stripe_customer_id = customerId;
+    if (subscriptionId) updatePayload.stripe_subscription_id = subscriptionId;
+
     const { data, error: updateError } = await supabase
       .from('profiles')
-      .update({
-        account_type: 'paid',
-        stripe_customer_id: customerId || `cus_test_${userId}`,
-        stripe_subscription_id: subscriptionId || `sub_test_${userId}`,
-        subscription_status: 'active',
-      })
+      .update(updatePayload)
       .eq('id', userId)
       .select('id, account_type, stripe_customer_id, stripe_subscription_id');
 

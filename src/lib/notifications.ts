@@ -65,10 +65,10 @@ export function buildWelcomeEmail(displayName: string) {
         <tr>
           <td style="padding: 28px;">
             <h2 style="margin: 0 0 12px; font-size: 20px; color: #f8fafc;">Welcome, ${safeName}!</h2>
-            <p style="margin: 0 0 12px; line-height: 1.6;">
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">
               You're in. Predict combined totals, earn points, and climb the leaderboard each matchday.
             </p>
-            <p style="margin: 0 0 12px; line-height: 1.6;">
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">
               Your free account gives you FT Goals predictions and access to core matchday action.
             </p>
             <div style="margin: 24px 0;">
@@ -76,7 +76,7 @@ export function buildWelcomeEmail(displayName: string) {
                 Start Predicting
               </a>
             </div>
-            <p style="margin: 0 0 8px; line-height: 1.6;">
+            <p style="margin: 0 0 8px; line-height: 1.6; color: #f8fafc;">
               Want full access to HT Goals, Corners, and all leaderboards? Upgrade for just GBP 5/month.
             </p>
             <a href="${upgradeUrl}" style="color: #4ade80; font-weight: 700; text-decoration: none;">
@@ -140,7 +140,7 @@ export function buildCancellationEmail(displayName: string) {
   const text = [
     `Hi ${safeName},`,
     '',
-    'We’ve confirmed your subscription cancellation. Your account has been downgraded to free access, and you can still predict FT Goals for upcoming matchdays.',
+    'We\ `ve confirmed your subscription cancellation. Your account has been downgraded to free access, and you can still predict FT Goals for upcoming matchdays.',
     '',
     `View your dashboard: ${dashboardUrl}`,
   ].join('\n');

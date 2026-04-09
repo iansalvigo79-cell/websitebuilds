@@ -125,10 +125,13 @@ function getPeriodBounds(period: LeaderboardPeriod): { start: Date; end: Date } 
   let start: Date;
   if (period === 'weekly') {
     start = new Date(now);
-    start.setDate(start.getDate() - 7);
+    const day = start.getDay(); // 0 = Sunday, 1 = Monday, ...
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + mondayOffset);
     start.setHours(0, 0, 0, 0);
   } else if (period === 'monthly') {
     start = new Date(now.getFullYear(), now.getMonth(), 1);
+    start.setHours(0, 0, 0, 0);
   } else {
     return { start: new Date(0), end };
   }

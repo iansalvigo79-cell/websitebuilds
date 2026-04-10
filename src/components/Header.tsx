@@ -26,6 +26,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import LoginIcon from '@mui/icons-material/Login';
 import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
 import WorkspacePremiumIcon from '@mui/icons-material/WorkspacePremium';
+import HomeIcon from '@mui/icons-material/Home';
 
 // Pages where the header should be hidden
 const HIDDEN_ROUTES = ['/signin', '/signup'];
@@ -252,6 +253,23 @@ export default function Header() {
                   <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.1)' }} />
 
                   {/* Menu Items */}
+                  <MenuItem
+                    onClick={() => {
+                      handleClose();
+                      router.push('/');
+                    }}
+                    sx={{
+                      color: '#fff',
+                      py: 1,
+                      px: 1.5,
+                      minHeight: 'auto',
+                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
+                    }}
+                  >
+                    <HomeIcon sx={{ mr: 1.5, fontSize: '1rem', color: '#999' }} />
+                    <Typography sx={{ fontSize: '0.875rem' }}>Home</Typography>
+                  </MenuItem>
+
                   <MenuItem
                     onClick={() => {
                       handleClose();

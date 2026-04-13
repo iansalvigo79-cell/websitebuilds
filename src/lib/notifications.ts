@@ -165,7 +165,7 @@ export function buildMatchdayResultsEmail(matchDayTitles: string[]) {
         <tr>
           <td style="padding: 28px;">
             <h2 style="margin: 0 0 12px; font-size: 20px; color: #f8fafc;">Results are in</h2>
-            <p style="margin: 0 0 12px; line-height: 1.6;">
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">
               ${body}
             </p>
             <div style="margin: 24px 0;">
@@ -200,7 +200,7 @@ export function buildAdminPaidSignupEmail(displayName: string | null, userId: st
         </tr>
         <tr>
           <td style="padding: 28px;">
-            <p style="margin: 0 0 12px; line-height: 1.6;">A paid player has completed signup.</p>
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">A paid player has completed signup.</p>
             <p style="margin: 0 0 8px;">Name: <strong>${name}</strong></p>
             <p style="margin: 0 0 8px;">User ID: <strong>${userId}</strong></p>
             ${email ? `<p style="margin: 0 0 8px;">Email: <strong>${email}</strong></p>` : ''}
@@ -224,7 +224,7 @@ export function buildAdmin40PointEmail(achievers: Array<{ userId: string; displa
         </tr>
         <tr>
           <td style="padding: 28px;">
-            <p style="margin: 0 0 12px; line-height: 1.6;">A player has scored 40 points in a matchday.</p>
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">A player has scored 40 points in a matchday.</p>
             ${achievers.map((item) => `<p style="margin: 0 0 8px;">${item.displayName || item.userId} — ${item.matchDayTitle}</p>`).join('')}
           </td>
         </tr>
@@ -258,7 +258,7 @@ export function buildAdminSignupSummaryEmail(freeProfiles: Array<{ display_name:
         </tr>
         <tr>
           <td style="padding: 28px;">
-            <p style="margin: 0 0 12px; line-height: 1.6;">${freeProfiles.length} new free players signed up in the last ${sinceDays} days.</p>
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">${freeProfiles.length} new free players signed up in the last ${sinceDays} days.</p>
             ${rows.map((row) => `<p style="margin: 0 0 8px;">${row}</p>`).join('')}
             <p style="margin: 16px 0 0;">View the admin dashboard: <a href="${APP_URL}/admin" style="color: #4ade80;">${APP_URL}/admin</a></p>
           </td>

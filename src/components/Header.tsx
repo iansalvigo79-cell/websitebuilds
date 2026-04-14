@@ -256,7 +256,7 @@ export default function Header() {
                   <MenuItem
                     onClick={() => {
                       handleClose();
-                      router.push('/');
+                      router.push('/dashboard');
                     }}
                     sx={{
                       color: '#fff',
@@ -267,7 +267,7 @@ export default function Header() {
                     }}
                   >
                     <HomeIcon sx={{ mr: 1.5, fontSize: '1rem', color: '#999' }} />
-                    <Typography sx={{ fontSize: '0.875rem' }}>Home</Typography>
+                    <Typography sx={{ fontSize: '0.875rem' }}>Dashboard</Typography>
                   </MenuItem>
 
                   <MenuItem

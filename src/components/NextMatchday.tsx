@@ -13,6 +13,16 @@ interface MatchDay {
   cutoff_at?: string | null;
 }
 
+interface Game {
+  id: string;
+  home_team: string | number;
+  away_team: string | number;
+  kickoff_at: string;
+  is_selected: boolean;
+  home_team_rel?: { name?: string | null } | null;
+  away_team_rel?: { name?: string | null } | null;
+}
+
 function formatLongDate(dateString?: string | null) {
   if (!dateString) return 'TBD';
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -37,6 +47,7 @@ function formatUtcDateTime(dateString?: string | null) {
 
 export default function NextMatchday() {
   const [nextMatchday, setNextMatchday] = useState<MatchDay | null>(null);
+  const [games, setGames] = useState<Game[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -58,8 +69,41 @@ export default function NextMatchday() {
           return;
         }
 
+        const matchday = data?.[0] ?? null;
         if (active) {
-          setNextMatchday(data?.[0] ?? null);
+          setNextMatchday(matchday);
+        }
+
+        // Fetch games for this matchday
+        if (matchday) {
+          const { data: gamesData, error: gamesError } = await supabase
+            .from('games')
+            .select('id, home_team, away_team, kickoff_at, is_selected')
+            .eq('match_day_id', matchday.id)
+            .order('kickoff_at', { ascending: true });
+
+          if (gamesError) {
+            console.error('Failed to load games:', gamesError);
+          } else if (active) {
+            // Fetch team names separately
+            const gameIds = (gamesData || []).map(g => ({ home: g.home_team, away: g.away_team }));
+            const allTeamIds = [...new Set(gameIds.flatMap(g => [g.home, g.away]).filter(Boolean))];
+            
+            const { data: teamsData } = await supabase
+              .from('teams')
+              .select('id, name')
+              .in('id', allTeamIds);
+
+            const teamMap = new Map((teamsData || []).map((t: any) => [t.id, t.name]));
+
+            const mappedGames = (gamesData || []).map((game: any) => ({
+              ...game,
+              home_team_rel: { name: teamMap.get(game.home_team) || null },
+              away_team_rel: { name: teamMap.get(game.away_team) || null },
+            }));
+
+            setGames(mappedGames);
+          }
         }
       } catch (err) {
         console.error('Next matchday fetch error:', err);
@@ -128,6 +172,66 @@ export default function NextMatchday() {
                   <Typography sx={{ color: '#9ca3af', mt: 0.5, fontSize: '0.95rem' }}>
                     Cutoff: {formatUtcDateTime(nextMatchday.cutoff_at)} GMT
                   </Typography>
+                  {games.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography sx={{ color: '#ffffff', fontSize: '0.9rem', fontWeight: 600, mb: 1.5 }}>
+                        Featured Games:
+                      </Typography>
+                      <Stack spacing={1}>
+                        {games.map((game) => (
+                          <Box
+                            key={game.id}
+                            sx={{
+                              backgroundColor: game.is_selected ? 'rgba(22, 163, 74, 0.1)' : 'rgba(255, 255, 255, 0.02)',
+                              border: game.is_selected ? '1px solid rgba(22, 163, 74, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+                              borderRadius: '8px',
+                              p: 1.5,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography sx={{ color: '#ffffff', fontSize: '0.9rem', fontWeight: 500 }}>
+                                {game.home_team_rel?.name ?? String(game.home_team)}
+                              </Typography>
+                              <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem' }}>vs</Typography>
+                              <Typography sx={{ color: '#ffffff', fontSize: '0.9rem', fontWeight: 500 }}>
+                                {game.away_team_rel?.name ?? String(game.away_team)}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography sx={{ color: '#d1d5db', fontSize: '0.75rem' }}>
+                                {new Date(game.kickoff_at).toLocaleTimeString('en-GB', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false,
+                                  timeZone: 'UTC'
+                                })} GMT
+                              </Typography>
+                              {game.is_selected && (
+                                <Box
+                                  sx={{
+                                    backgroundColor: '#16a34a',
+                                    color: '#ffffff',
+                                    px: 1,
+                                    py: 0.25,
+                                    borderRadius: '4px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 0.5,
+                                  }}
+                                >
+                                  Selected
+                                </Box>
+                              )}
+                            </Box>
+                          </Box>
+                        ))}
+                      </Stack>
+                    </Box>
+                  )}
                 </Box>
               ) : (
                 <Typography sx={{ color: '#9ca3af' }}>
@@ -157,7 +261,7 @@ export default function NextMatchday() {
                   },
                 }}
               >
-                View predictions
+                Start Predicting
               </Button>
             </Box>
           </Stack>

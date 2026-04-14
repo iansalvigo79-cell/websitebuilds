@@ -13,10 +13,6 @@ interface MatchDay {
   cutoff_at?: string | null;
 }
 
-interface TeamRelation {
-  name?: string | null;
-}
-
 interface Game {
   id: string;
   home_team: string | number;

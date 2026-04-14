@@ -60,8 +60,8 @@ export default function NextMatchday() {
           .from('match_days')
           .select('id, name, match_date, cutoff_at')
           .is('actual_total_goals', null)
-          .gte('match_date', now)
-          .order('match_date', { ascending: true })
+          .gte('cutoff_at', now)
+          .order('cutoff_at', { ascending: true })
           .limit(1);
 
         if (error) {

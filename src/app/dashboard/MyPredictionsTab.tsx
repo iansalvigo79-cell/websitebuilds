@@ -218,8 +218,8 @@ export default function MyPredictionsTab() {
             (p.ht_corners_points ?? 0);
           totals[p.user_id] = (totals[p.user_id] || 0) + totalPoints;
         });
-        const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-        const idx = ranked.findIndex(([uid]) => uid === user.id);
+        // const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+        // const idx = ranked.findIndex(([uid]) => uid === user.id);
         // let rank = idx >= 0 ? idx + 1 : null;
       }
     }

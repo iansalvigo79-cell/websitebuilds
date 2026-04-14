@@ -191,7 +191,6 @@ export default function MyPredictionsTab() {
     }
     const mdMap = new Map((mdList || []).map((m: any) => [m.id, m]));
 
-    let rank: number | null = null;
     const seasonId = seasonData?.id;
     if (seasonId) {
       const { data: sDays, error: sDaysError } = await supabase
@@ -221,7 +220,7 @@ export default function MyPredictionsTab() {
         });
         const ranked = Object.entries(totals).sort((a, b) => b[1] - a[1]);
         const idx = ranked.findIndex(([uid]) => uid === user.id);
-        rank = idx >= 0 ? idx + 1 : null;
+        // let rank = idx >= 0 ? idx + 1 : null;
       }
     }
 
@@ -303,11 +302,6 @@ export default function MyPredictionsTab() {
     if (max >= 3) badgeSet.add('streak_3');
     if (max >= 5) badgeSet.add('streak_5');
     if (max >= 10) badgeSet.add('streak_10');
-    if (rank === 1) {
-      badgeSet.add('top_weekly');
-      badgeSet.add('top_monthly');
-      badgeSet.add('top_season');
-    }
     if (total >= 1) {
       badgeSet.add('total-points-first');
       if (total >= 25) badgeSet.add('total-points-25');

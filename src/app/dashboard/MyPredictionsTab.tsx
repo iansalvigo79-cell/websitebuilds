@@ -58,7 +58,14 @@ interface ProfileInfo {
 }
 
 type HistoryFilter = 'all' | 'exact' | 'last5';
+type HistoryType = 'ft_goals' | 'ht_goals' | 'ft_corners' | 'ht_corners';
 
+const HISTORY_TYPE_LABELS: Record<HistoryType, string> = {
+  ft_goals: 'FT Goals',
+  ht_goals: 'HT Goals',
+  ft_corners: 'FT Corners',
+  ht_corners: 'HT Corners',
+};
 
 const cardSx = { backgroundColor: '#161a23', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px' };
 
@@ -133,6 +140,7 @@ export default function MyPredictionsTab() {
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
   const [earnedBadges, setEarnedBadges] = useState<BadgeType[]>([]);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
+  const [historyType, setHistoryType] = useState<HistoryType>('ft_goals');
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const allBadges = BADGE_CATALOG;
@@ -378,6 +386,36 @@ export default function MyPredictionsTab() {
 
   const chartData = useMemo(() => [...predictions].sort((a, b) => (a.match_date > b.match_date ? 1 : -1)).slice(-12).map((p) => ({ label: p.matchdayLabel, pts: p.points ?? 0 })), [predictions]);
   const history = useMemo(() => historyFilter === 'exact' ? predictions.filter((p) => p.isExact) : historyFilter === 'last5' ? predictions.slice(0, 5) : predictions, [historyFilter, predictions]);
+
+  const getHistoryRowValues = (row: PredictionRow) => {
+    const predicted =
+      historyType === 'ft_goals'
+        ? row.predicted_total_goals
+        : historyType === 'ht_goals'
+        ? row.predicted_half_time_goals
+        : historyType === 'ft_corners'
+        ? row.predicted_ft_corners
+        : row.predicted_ht_corners;
+    const actual =
+      historyType === 'ft_goals'
+        ? row.actual_total_goals
+        : historyType === 'ht_goals'
+        ? row.actual_ht_goals
+        : historyType === 'ft_corners'
+        ? row.actual_total_corners
+        : row.actual_ht_corners;
+    const points =
+      historyType === 'ft_goals'
+        ? row.ft_points
+        : historyType === 'ht_goals'
+        ? row.ht_goals_points
+        : historyType === 'ft_corners'
+        ? row.corners_points
+        : row.ht_corners_points;
+    const status = actual == null ? 'PENDING' : (points ?? 0) === 0 ? 'MISS' : points === 10 ? 'EXACT' : 'CLOSE';
+    return { predicted, actual, points, status };
+  };
+
   const animatedTotalAccuracy = useAnimatedNumber(totalAccuracy, 900);
   const totalAccuracyDisplay = completed.length ? Math.round(animatedTotalAccuracy) : 0;
   const totalAccuracyMuted = completed.length === 0;
@@ -386,7 +424,7 @@ export default function MyPredictionsTab() {
   const pageSize = 5;
   const pages = Math.max(1, Math.ceil(history.length / pageSize));
   const paged = history.slice(page * pageSize, page * pageSize + pageSize);
-  useEffect(() => { setPage(0); }, [historyFilter]);
+  useEffect(() => { setPage(0); }, [historyFilter, historyType]);
 
   if (loading) {
     return (
@@ -578,53 +616,139 @@ export default function MyPredictionsTab() {
       </Grid>
 
       <Card sx={{ ...cardSx, mb: 2 }}><CardContent sx={{ p: 2 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1 }}>
-          <Typography sx={{ color: '#fff', fontWeight: 800 }}>Prediction History</Typography>
-          <ToggleButtonGroup
-            value={historyFilter}
-            exclusive
-            onChange={(_e, v: HistoryFilter | null) => v && setHistoryFilter(v)}
-            size="small"
-            sx={{
-              p: 0.4,
-              gap: 0.6,
-              borderRadius: 999,
-              backgroundColor: 'rgba(255,255,255,0.03)',
-              '& .MuiToggleButton-root': {
-                px: 1.35,
-                py: 0.45,
-                minHeight: 30,
-                color: '#d1d5db',
-                backgroundColor: 'rgba(30,35,48,0.9)',
-                border: '1px solid rgba(255,255,255,0.16)',
-                textTransform: 'none',
-                fontWeight: 700,
-                fontSize: '0.74rem',
-                letterSpacing: '0.01em',
-                borderRadius: '999px !important',
-                '&:hover': {
-                  backgroundColor: 'rgba(59,130,246,0.14)',
-                  borderColor: 'rgba(59,130,246,0.5)',
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ mb: 1, gap: 1 }}>
+          <Box>
+            <Typography sx={{ color: '#fff', fontWeight: 800 }}>Prediction History</Typography>
+            <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', mt: 0.5 }}>
+              Viewing {HISTORY_TYPE_LABELS[historyType]}{!isPaid ? ' (upgrade to Pro for HT goals and corners)' : ''}
+            </Typography>
+          </Box>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.6} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+            <ToggleButtonGroup
+              value={historyType}
+              exclusive
+              onChange={(_e, v: HistoryType | null) => v && setHistoryType(v)}
+              size="small"
+              sx={{
+                p: 0.4,
+                gap: 0.6,
+                borderRadius: 999,
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                '& .MuiToggleButton-root': {
+                  px: 1.2,
+                  py: 0.45,
+                  minHeight: 30,
+                  color: '#d1d5db',
+                  backgroundColor: 'rgba(30,35,48,0.9)',
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.72rem',
+                  letterSpacing: '0.01em',
+                  borderRadius: '999px !important',
+                  '&:hover': {
+                    backgroundColor: 'rgba(59,130,246,0.14)',
+                    borderColor: 'rgba(59,130,246,0.5)',
+                  },
                 },
-              },
-              '& .MuiToggleButton-root.Mui-selected': {
-                color: '#fff',
-                borderColor: 'rgba(22,163,74,0.75)',
-                backgroundColor: '#16a34a',
-                boxShadow: '0 0 0 1px rgba(22,163,74,0.2) inset',
-              },
-              '& .MuiToggleButton-root.Mui-selected:hover': {
-                backgroundColor: '#15803d',
-              },
-            }}
-          >
-            <ToggleButton value="all">All</ToggleButton>
-            <ToggleButton value="exact">Exact only</ToggleButton>
-            <ToggleButton value="last5">Last 5</ToggleButton>
-          </ToggleButtonGroup>
+                '& .MuiToggleButton-root.Mui-selected': {
+                  color: '#fff',
+                  borderColor: 'rgba(22,163,74,0.75)',
+                  backgroundColor: '#16a34a',
+                  boxShadow: '0 0 0 1px rgba(22,163,74,0.2) inset',
+                },
+                '& .MuiToggleButton-root.Mui-selected:hover': {
+                  backgroundColor: '#15803d',
+                },
+              }}
+            >
+              <ToggleButton value="ft_goals">FT Goals</ToggleButton>
+              <ToggleButton value="ht_goals" disabled={!isPaid}>HT Goals</ToggleButton>
+              <ToggleButton value="ft_corners" disabled={!isPaid}>FT Corners</ToggleButton>
+              <ToggleButton value="ht_corners" disabled={!isPaid}>HT Corners</ToggleButton>
+            </ToggleButtonGroup>
+            <ToggleButtonGroup
+              value={historyFilter}
+              exclusive
+              onChange={(_e, v: HistoryFilter | null) => v && setHistoryFilter(v)}
+              size="small"
+              sx={{
+                p: 0.4,
+                gap: 0.6,
+                borderRadius: 999,
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                '& .MuiToggleButton-root': {
+                  px: 1.35,
+                  py: 0.45,
+                  minHeight: 30,
+                  color: '#d1d5db',
+                  backgroundColor: 'rgba(30,35,48,0.9)',
+                  border: '1px solid rgba(255,255,255,0.16)',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.74rem',
+                  letterSpacing: '0.01em',
+                  borderRadius: '999px !important',
+                  '&:hover': {
+                    backgroundColor: 'rgba(59,130,246,0.14)',
+                    borderColor: 'rgba(59,130,246,0.5)',
+                  },
+                },
+                '& .MuiToggleButton-root.Mui-selected': {
+                  color: '#fff',
+                  borderColor: 'rgba(22,163,74,0.75)',
+                  backgroundColor: '#16a34a',
+                  boxShadow: '0 0 0 1px rgba(22,163,74,0.2) inset',
+                },
+                '& .MuiToggleButton-root.Mui-selected:hover': {
+                  backgroundColor: '#15803d',
+                },
+              }}
+            >
+              <ToggleButton value="all">All</ToggleButton>
+              <ToggleButton value="exact">Exact only</ToggleButton>
+              <ToggleButton value="last5">Last 5</ToggleButton>
+            </ToggleButtonGroup>
+          </Stack>
         </Stack>
         <TableContainer sx={{ borderRadius: 2, border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Table size="small"><TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}><TableRow><TableCell>Matchday</TableCell><TableCell>Matchday Name</TableCell><TableCell>Prediction</TableCell><TableCell>Result</TableCell><TableCell>Points</TableCell><TableCell>Status</TableCell></TableRow></TableHead><TableBody>{paged.map((r) => { const totalPoints = r.points ?? 0; const ftPoints = r.ft_points ?? 0; const status = r.actual_total_goals == null ? 'PENDING' : totalPoints === 0 ? 'MISS' : ftPoints === 10 ? 'EXACT' : 'CLOSE'; const sx = status === 'EXACT' ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' } : status === 'CLOSE' ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' } : status === 'MISS' ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' } : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' }; return <TableRow key={r.id}><TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell><TableCell sx={{ color: '#d1d5db' }}>{r.matchdayName}</TableCell><TableCell sx={{ color: '#fff' }}>{r.predicted_total_goals}</TableCell><TableCell sx={{ color: '#9ca3af' }}>{r.actual_total_goals ?? '-'}</TableCell><TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{r.points ?? '-'}</TableCell><TableCell><Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} /></TableCell></TableRow>; })}</TableBody></Table>
+          <Table size="small">
+            <TableHead sx={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
+              <TableRow>
+                <TableCell>Matchday</TableCell>
+                <TableCell>Matchday Name</TableCell>
+                <TableCell>Prediction</TableCell>
+                <TableCell>Result</TableCell>
+                <TableCell>Points</TableCell>
+                <TableCell>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paged.map((r) => {
+                const { predicted, actual, points, status } = getHistoryRowValues(r);
+                const sx =
+                  status === 'EXACT'
+                    ? { bgcolor: 'rgba(22,163,74,0.18)', color: '#4ade80', border: '1px solid rgba(22,163,74,0.45)' }
+                    : status === 'CLOSE'
+                    ? { bgcolor: 'rgba(234,179,8,0.18)', color: '#fcd34d', border: '1px solid rgba(234,179,8,0.45)' }
+                    : status === 'MISS'
+                    ? { bgcolor: 'rgba(239,68,68,0.18)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.45)' }
+                    : { bgcolor: 'rgba(107,114,128,0.22)', color: '#9ca3af', border: '1px solid rgba(107,114,128,0.45)' };
+                return (
+                  <TableRow key={r.id}>
+                    <TableCell sx={{ color: '#fff', fontWeight: 700 }}>{r.matchdayLabel}</TableCell>
+                    <TableCell sx={{ color: '#d1d5db' }}>{r.matchdayName}</TableCell>
+                    <TableCell sx={{ color: '#fff' }}>{predicted ?? '-'}</TableCell>
+                    <TableCell sx={{ color: '#9ca3af' }}>{actual ?? '-'}</TableCell>
+                    <TableCell sx={{ color: '#22c55e', fontWeight: 700 }}>{points ?? '-'}</TableCell>
+                    <TableCell>
+                      <Chip label={status} size="small" sx={{ ...sx, fontWeight: 800 }} />
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </TableContainer>
         <Stack direction="row" justifyContent="flex-end" spacing={0.6} sx={{ mt: 1.2 }}>{Array.from({ length: pages }).map((_, i) => <Button key={i} size="small" onClick={() => setPage(i)} sx={{ minWidth: 28, color: i === page ? '#fff' : '#9ca3af', border: '1px solid rgba(255,255,255,0.1)', backgroundColor: i === page ? '#16a34a' : 'transparent' }}>{i + 1}</Button>)}</Stack>
       </CardContent></Card>

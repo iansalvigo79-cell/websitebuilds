@@ -1,5 +1,5 @@
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const ADMIN_EMAIL = process.env.NOTIFICATION_ADMIN_EMAIL || 'ian@revnuu.io';
+export const ADMIN_EMAIL = process.env.NOTIFICATION_ADMIN_EMAIL || 'stormhook0517@gmail.com';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.goalactico.net';
 
 interface SendEmailOptions {
@@ -145,6 +145,50 @@ export function buildCancellationEmail(displayName: string) {
     `View your dashboard: ${dashboardUrl}`,
   ].join('\n');
   return { subject: 'Goalactico subscription cancelled', html, text };
+}
+
+export function buildScheduledCancellationEmail(displayName: string) {
+  const safeName = displayName || 'there';
+  const subscriptionUrl = 'https://goalactico.net/subscription';
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0b1220; padding: 32px; color: #e5e7eb;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 640px; margin: 0 auto; background: #111827; border-radius: 16px; overflow: hidden; border: 1px solid rgba(248,113,113,0.25);">
+        <tr>
+          <td style="padding: 24px 28px; background: linear-gradient(135deg, #ef4444, #f97316); color: #0b1220;">
+            <h1 style="margin: 0; font-size: 24px; font-weight: 800;">Goalactico Pro</h1>
+            <p style="margin: 6px 0 0; font-size: 14px; font-weight: 600;">Subscription Cancellation Confirmed</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 28px;">
+            <h2 style="margin: 0 0 12px; font-size: 20px; color: #f8fafc;">Hi ${safeName},</h2>
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">
+              Your Goalactico Pro subscription has been cancelled.
+            </p>
+            <p style="margin: 0 0 12px; line-height: 1.6; color: #f8fafc;">
+              You will continue to have full access until the end of your current billing period.
+              After that, your account will automatically revert to the free plan.
+            </p>
+            <p style="margin: 0; line-height: 1.6; color: #f8fafc;">
+              You can resubscribe at any time here:
+              <a href="${subscriptionUrl}" style="color: #4ade80; font-weight: 700; text-decoration: none;">goalactico.net/subscription</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+  const text = [
+    `Hi ${safeName},`,
+    '',
+    'Your Goalactico Pro subscription has been cancelled.',
+    '',
+    'You will continue to have full access until the end of your current billing period.',
+    'After that, your account will automatically revert to the free plan.',
+    '',
+    'You can resubscribe at any time here: goalactico.net/subscription',
+  ].join('\n');
+  return { subject: 'Your Goalactico Pro subscription has been cancelled', html, text };
 }
 
 export function buildMatchdayResultsEmail(matchDayTitles: string[]) {

@@ -392,6 +392,7 @@ export async function POST(request: NextRequest) {
                 periodEnd
               );
               await sendEmail({ to: profile.email, subject, html, text });
+              await sendAdminNotification(subject, text, html);
               console.log(`[Webhook] Cancellation email sent to ${profile.email} - access until ${periodEnd}`);
             } catch (emailErr) {
               console.error('[Webhook] Failed to send cancellation email:', emailErr);

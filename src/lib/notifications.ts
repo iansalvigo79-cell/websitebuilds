@@ -1,5 +1,5 @@
 const RESEND_API_URL = 'https://api.resend.com/emails';
-export const ADMIN_EMAIL = process.env.NOTIFICATION_ADMIN_EMAIL || 'stormhook0517@gmail.com';
+export const ADMIN_EMAIL = 'ian@revnuu.io';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.goalactico.net';
 
 interface SendEmailOptions {
@@ -41,6 +41,8 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions) {
 }
 
 export async function sendAdminNotification(subject: string, text: string, html?: string) {
+  console.log(`######${ADMIN_EMAIL} should receive admin notification: ${subject}\n${text}########`);
+
   return sendEmail({
     to: ADMIN_EMAIL,
     subject,
